@@ -27,10 +27,7 @@ Write-Host "==> 3. Linking resources and generating R.java..." -ForegroundColor 
 if ($LASTEXITCODE -ne 0) { throw "aapt2 link failed" }
 
 Write-Host "==> 4. Compiling Java sources with Java 8 bytecode compatibility..." -ForegroundColor Cyan
-$javaFiles = @(
-    "build/gen/top/rincynar/stronghold/R.java",
-    "src/main/java/top/rincynar/stronghold/MainActivity.java"
-)
+$javaFiles = Get-ChildItem -Path "build/gen", "src/main/java" -Recurse -Filter *.java | Select-Object -ExpandProperty FullName
 & $JAVAC -encoding UTF-8 -source 8 -target 8 -cp $PLATFORM -d "build/classes" $javaFiles
 if ($LASTEXITCODE -ne 0) { throw "javac compilation failed" }
 
