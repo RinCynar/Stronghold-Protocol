@@ -39,11 +39,8 @@ public class MainActivity extends Activity {
 
     private String getTargetUrl() {
         try {
-            int id = getResources().getIdentifier("target_url", "string", getPackageName());
-            if (id != 0) {
-                String u = getString(id);
-                if (u != null && !u.trim().isEmpty()) return u.trim();
-            }
+            String u = getString(R.string.target_url);
+            if (u != null && !u.trim().isEmpty()) return u.trim();
         } catch (Throwable ignored) {}
         return "https://ak.rincynar.top";
     }
@@ -150,7 +147,8 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (request == null || request.getUrl() == null) return false;
                 String url = request.getUrl().toString();
-                if (url.startsWith("https://ak.rincynar.top") || url.startsWith("http://ak.rincynar.top") || url.startsWith("https://game.starst.site")) {
+                if (url.startsWith("https://ak.rincynar.top") || url.startsWith("http://ak.rincynar.top")
+                        || url.startsWith("https://game.starst.site") || url.startsWith("http://game.starst.site")) {
                     return false;
                 }
                 try {
