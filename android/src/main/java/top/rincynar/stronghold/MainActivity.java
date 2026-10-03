@@ -59,9 +59,31 @@ public class MainActivity extends Activity {
             }
         } catch (Throwable ignored) {}
 
+        try {
+            // Extend window layout behind system bars (status & navigation)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                getWindow().setDecorFitsSystemWindows(false);
+            }
+        } catch (Throwable ignored) {}
+
         setContentView(R.layout.activity_main);
         rootContainer = findViewById(R.id.rootContainer);
         progressBar = findViewById(R.id.progressBar);
+
+        try {
+            final View decor = getWindow().getDecorView();
+            if (decor != null) {
+                decor.setOnSystemUiVisibilityChangeListener(new View.OnSystemUiVisibilityChangeListener() {
+                    @Override
+                    public void onSystemUiVisibilityChange(int visibility) {
+                        if ((visibility & View.SYSTEM_UI_FLAG_FULLSCREEN) == 0
+                                || (visibility & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0) {
+                            hideSystemUI();
+                        }
+                    }
+                });
+            }
+        } catch (Throwable ignored) {}
 
         hideSystemUI();
 
@@ -135,6 +157,8 @@ public class MainActivity extends Activity {
                 if (progressBar != null) {
                     progressBar.setVisibility(View.VISIBLE);
                 }
+                hideSystemUI();
+                injectViewportAndLayoutFixes();
             }
 
             @Override
@@ -143,6 +167,7 @@ public class MainActivity extends Activity {
                     progressBar.setVisibility(View.GONE);
                 }
                 hideSystemUI();
+                injectViewportAndLayoutFixes();
             }
 
             @Override
@@ -162,6 +187,9 @@ public class MainActivity extends Activity {
                         progressBar.setVisibility(View.GONE);
                     }
                 }
+                if (newProgress > 30) {
+                    injectViewportAndLayoutFixes();
+                }
             }
         });
 
@@ -172,12 +200,52 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void injectViewportAndLayoutFixes() {
+        if (webView == null) return;
+        final String js = 
+            "(function() {\n" +
+            "  try {\n" +
+            "    if (!document.getElementById('sp-responsive-fix')) {\n" +
+            "      var style = document.createElement('style');\n" +
+            "      style.id = 'sp-responsive-fix';\n" +
+            "      style.textContent = '\\n" +
+            "        html {\\n" +
+            "          font-size: clamp(16px, min(calc(100vw / 19.2), calc(100svh / 10.8), calc(100vh / 10.8)), 240px) !important;\\n" +
+            "          -webkit-text-size-adjust: 100% !important;\\n" +
+            "          text-size-adjust: 100% !important;\\n" +
+            "        }\\n" +
+            "        .result__main {\\n" +
+            "          padding-top: clamp(0.12rem, 2vh, 0.36rem) !important;\\n" +
+            "          padding-bottom: clamp(0.12rem, 2vh, 0.3rem) !important;\\n" +
+            "        }\\n" +
+            "        .result__hero {\\n" +
+            "          padding-top: clamp(0.08rem, 1.5vh, 0.3rem) !important;\\n" +
+            "          overflow-y: auto !important;\\n" +
+            "          overflow-x: hidden !important;\\n" +
+            "          scrollbar-width: thin !important;\\n" +
+            "        }\\n" +
+            "        .result__foot {\\n" +
+            "          margin-top: auto !important;\\n" +
+            "          padding-top: clamp(0.08rem, 1.2vh, 0.2rem) !important;\\n" +
+            "          padding-bottom: 0.06rem !important;\\n" +
+            "        }\\n" +
+            "      ';\n" +
+            "      (document.head || document.documentElement).appendChild(style);\n" +
+            "    }\n" +
+            "  } catch(e) {}\n" +
+            "})();";
+        webView.evaluateJavascript(js, null);
+    }
+
     private void setupWebSettings() {
         WebSettings ws = webView.getSettings();
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
         ws.setUseWideViewPort(true);
-        ws.setLoadWithOverviewMode(true);
+        ws.setLoadWithOverviewMode(false);
+        ws.setTextZoom(100);
+        ws.setMinimumFontSize(1);
+        ws.setMinimumLogicalFontSize(1);
         ws.setCacheMode(WebSettings.LOAD_DEFAULT);
 
         try {
@@ -270,23 +338,23 @@ public class MainActivity extends Activity {
 
     private void hideSystemUI() {
         try {
+            View decorView = getWindow().getDecorView();
+            if (decorView != null) {
+                decorView.setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    | View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                );
+            }
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 WindowInsetsController controller = getWindow().getInsetsController();
                 if (controller != null) {
                     controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
                     controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-                }
-            } else {
-                View decorView = getWindow().getDecorView();
-                if (decorView != null) {
-                    decorView.setSystemUiVisibility(
-                        View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                        | View.SYSTEM_UI_FLAG_FULLSCREEN
-                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    );
                 }
             }
         } catch (Throwable ignored) {}
@@ -349,6 +417,12 @@ public class MainActivity extends Activity {
             } catch (Throwable ignored) {}
         }
         hideSystemUI();
+        new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                hideSystemUI();
+            }
+        }, 300);
     }
 
     @Override

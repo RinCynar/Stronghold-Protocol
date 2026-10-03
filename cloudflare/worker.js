@@ -52,9 +52,22 @@ export default {
         cf: cfOptions,
       });
 
-      // 5. 复制响应头并增加 CORS 支持
-      const resHeaders = new Headers(response.headers);
-      resHeaders.set('Access-Control-Allow-Origin', '*');
+      // 5. 针对移动端适配的 CSS 实时补丁（避免手机横屏下因 clamp(40px) 导致结算界面超高被截断）
+      if (response.status === 200) {
+        if (url.pathname === '/css/theme.css') {
+          let css = await response.text();
+          css = css.replaceAll('clamp(40px,', 'clamp(16px,');
+          return new Response(css, { status: 200, headers: resHeaders });
+        }
+        if (url.pathname === '/css/screens/result.css') {
+          let css = await response.text();
+          css = css.replace(
+            '.result__hero { display: flex; flex-direction: column; align-items: flex-start; gap: .16rem; padding-top: .3rem; min-height: 0; }',
+            '.result__hero { display: flex; flex-direction: column; align-items: flex-start; gap: clamp(.08rem, 1.2vh, .16rem); padding-top: clamp(.1rem, 2vh, .3rem); min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }'
+          );
+          return new Response(css, { status: 200, headers: resHeaders });
+        }
+      }
 
       return new Response(response.body, {
         status: response.status,
