@@ -87,113 +87,68 @@ def main():
 
     classes_dex = os.path.join(dex_dir, "classes.dex")
 
-    print("==> 6. Preparing Starst overlay and linking base_starst.apk...")
-    res_starst = os.path.join(build_dir, "res_starst")
-    os.makedirs(os.path.join(res_starst, "values"), exist_ok=True)
-    os.makedirs(os.path.join(res_starst, "values-zh"), exist_ok=True)
+    print("==> 6. Packaging and signing Stronghold-Protocol.apk...")
+    raw_apk = os.path.join(build_dir, "raw.apk")
+    aligned_apk = os.path.join(build_dir, "aligned.apk")
+    final_apk_android = os.path.join(script_dir, "Stronghold-Protocol.apk")
+    final_apk_root = os.path.join(project_root, "Stronghold-Protocol.apk")
 
-    with open(os.path.join(res_starst, "values", "strings.xml"), "w", encoding="utf-8") as f:
-        f.write('''<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">Stronghold Protocol (Starst)</string>
-    <string name="target_url">https://game.starst.site</string>
-</resources>
-''')
+    shutil.copyfile(base_rc_apk, raw_apk)
 
-    with open(os.path.join(res_starst, "values-zh", "strings.xml"), "w", encoding="utf-8") as f:
-        f.write('''<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">卫戍协议：盟约 (Starst)</string>
-    <string name="target_url">https://game.starst.site</string>
-</resources>
-''')
+    # Append classes.dex
+    with zipfile.ZipFile(raw_apk, "a", compression=zipfile.ZIP_DEFLATED) as z:
+        z.write(classes_dex, "classes.dex")
 
-    compiled_starst = os.path.join(build_dir, "compiled_starst.zip")
-    subprocess.check_call([aapt2, "compile", "--dir", res_starst, "-o", compiled_starst])
+    # Zipalign
+    subprocess.check_call([zipalign, "-p", "-f", "4", raw_apk, aligned_apk])
 
-    base_starst_apk = os.path.join(build_dir, "base_starst.apk")
+    # Apksigner
     subprocess.check_call([
-        aapt2, "link",
-        "-R", compiled_starst,
-        compiled_res,
-        "-I", platform_jar,
-        "--manifest", manifest,
-        "--rename-manifest-package", "top.rincynar.stronghold.starst",
-        "--auto-add-overlay",
-        "-o", base_starst_apk
+        apksigner, "sign",
+        "--ks", keystore,
+        "--ks-key-alias", "stronghold",
+        "--ks-pass", "pass:123456",
+        "--key-pass", "pass:123456",
+        "--min-sdk-version", "21",
+        "--v1-signing-enabled", "true",
+        "--v2-signing-enabled", "true",
+        "--v3-signing-enabled", "true",
+        "--out", final_apk_android,
+        aligned_apk
     ])
 
-    targets = [
-        {
-            "name": "Stronghold-Protocol_rc.apk",
-            "base_apk": base_rc_apk,
-            "desc": "RC 反代端 (在线客户端 ~41KB)"
-        },
-        {
-            "name": "Stronghold-Protocol_starst.apk",
-            "base_apk": base_starst_apk,
-            "desc": "Starst 源站端 (在线客户端 ~41KB)"
-        },
-    ]
+    # Verify signature
+    subprocess.check_call([apksigner, "verify", "-v", final_apk_android])
 
-    output_apks = []
+    # Copy to project root
+    shutil.copyfile(final_apk_android, final_apk_root)
 
-    for idx, target in enumerate(targets, 1):
-        apk_name = target["name"]
-        print(f"\n[{idx}/2] Building {apk_name} ({target['desc']})...")
-        t_sub_start = time.time()
+    # Also keep Stronghold-Protocol_rc.apk for backwards compatibility
+    rc_apk_android = os.path.join(script_dir, "Stronghold-Protocol_rc.apk")
+    rc_apk_root = os.path.join(project_root, "Stronghold-Protocol_rc.apk")
+    shutil.copyfile(final_apk_android, rc_apk_android)
+    shutil.copyfile(final_apk_android, rc_apk_root)
 
-        raw_apk = os.path.join(build_dir, f"raw_{idx}.apk")
-        aligned_apk = os.path.join(build_dir, f"aligned_{idx}.apk")
-        final_apk_android = os.path.join(script_dir, apk_name)
-        final_apk_root = os.path.join(project_root, apk_name)
+    # Clean up deprecated Starst APKs if they exist
+    for f in [
+        os.path.join(script_dir, "Stronghold-Protocol_starst.apk"),
+        os.path.join(project_root, "Stronghold-Protocol_starst.apk")
+    ]:
+        if os.path.exists(f):
+            try:
+                os.remove(f)
+            except Exception:
+                pass
 
-        shutil.copyfile(target["base_apk"], raw_apk)
-
-        # Append classes.dex
-        with zipfile.ZipFile(raw_apk, "a", compression=zipfile.ZIP_DEFLATED) as z:
-            z.write(classes_dex, "classes.dex")
-
-        # Zipalign
-        subprocess.check_call([zipalign, "-p", "-f", "4", raw_apk, aligned_apk])
-
-        # Apksigner
-        subprocess.check_call([
-            apksigner, "sign",
-            "--ks", keystore,
-            "--ks-key-alias", "stronghold",
-            "--ks-pass", "pass:123456",
-            "--key-pass", "pass:123456",
-            "--min-sdk-version", "21",
-            "--v1-signing-enabled", "true",
-            "--v2-signing-enabled", "true",
-            "--v3-signing-enabled", "true",
-            "--out", final_apk_android,
-            aligned_apk
-        ])
-
-        # Verify signature
-        subprocess.check_call([apksigner, "verify", "-v", final_apk_android])
-
-        # Copy to project root
-        shutil.copyfile(final_apk_android, final_apk_root)
-
-        size_kb = os.path.getsize(final_apk_android) / 1024
-        size_str = f"{size_kb / 1024:.2f} MB" if size_kb > 1024 else f"{size_kb:.2f} KB"
-        print(f"    Done in {time.time() - t_sub_start:.1f}s -> {apk_name} ({size_str})")
-        output_apks.append((apk_name, size_str, target["desc"]))
-
-    # Copy Stronghold-Protocol_rc.apk to Stronghold-Protocol.apk for default compatibility
-    default_apk = os.path.join(project_root, "Stronghold-Protocol.apk")
-    shutil.copyfile(os.path.join(project_root, "Stronghold-Protocol_rc.apk"), default_apk)
-    shutil.copyfile(os.path.join(project_root, "Stronghold-Protocol_rc.apk"), os.path.join(script_dir, "Stronghold-Protocol.apk"))
+    size_kb = os.path.getsize(final_apk_android) / 1024
+    size_str = f"{size_kb / 1024:.2f} MB" if size_kb > 1024 else f"{size_kb:.2f} KB"
 
     total_time = time.time() - start_time
     print(f"\n=======================================================")
-    print(f"BOTH APKS BUILT AND SIGNED SUCCESSFULLY in {total_time:.1f}s!")
+    print(f"APK BUILT AND SIGNED SUCCESSFULLY in {total_time:.1f}s!")
     print(f"=======================================================")
-    for name, size, desc in output_apks:
-        print(f" - {name:<35} {size:>10}  | {desc}")
+    print(f" - Stronghold-Protocol.apk             {size_str:>10}  | 官方自建反代客户端 (目标 https://ak.s.rincynar.top)")
+    print(f" - Stronghold-Protocol_rc.apk          {size_str:>10}  | 兼容别名")
     print("=======================================================\n")
 
 if __name__ == "__main__":

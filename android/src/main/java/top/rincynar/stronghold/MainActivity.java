@@ -42,7 +42,7 @@ public class MainActivity extends Activity {
             String u = getString(R.string.target_url);
             if (u != null && !u.trim().isEmpty()) return u.trim();
         } catch (Throwable ignored) {}
-        return "https://ak.rincynar.top";
+        return "https://ak.s.rincynar.top";
     }
 
     @Override
@@ -147,8 +147,8 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (request == null || request.getUrl() == null) return false;
                 String url = request.getUrl().toString();
-                if (url.startsWith("https://ak.rincynar.top") || url.startsWith("http://ak.rincynar.top")
-                        || url.startsWith("https://game.starst.site") || url.startsWith("http://game.starst.site")) {
+                if (url.startsWith("https://ak.s.rincynar.top") || url.startsWith("http://ak.s.rincynar.top")
+                        || url.startsWith("https://ak.rincynar.top") || url.startsWith("http://ak.rincynar.top")) {
                     return false;
                 }
                 try {

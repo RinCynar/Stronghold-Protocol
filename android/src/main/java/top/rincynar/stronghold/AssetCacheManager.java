@@ -37,7 +37,7 @@ public class AssetCacheManager {
         if (uri == null) return false;
         String host = uri.getHost();
         if (host == null) return false;
-        if (!host.equalsIgnoreCase("ak.rincynar.top") && !host.equalsIgnoreCase("game.starst.site")) {
+        if (!host.equalsIgnoreCase("ak.s.rincynar.top") && !host.equalsIgnoreCase("ak.rincynar.top")) {
             return false;
         }
         String path = uri.getPath();
