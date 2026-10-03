@@ -31,12 +31,22 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 
 public class MainActivity extends Activity {
-    private static final String TARGET_URL = "https://ak.rincynar.top";
     private FrameLayout rootContainer;
     private WebView webView;
     private ProgressBar progressBar;
     private long backPressedTime = 0;
     private PowerManager.WakeLock wakeLock;
+
+    private String getTargetUrl() {
+        try {
+            int id = getResources().getIdentifier("target_url", "string", getPackageName());
+            if (id != 0) {
+                String u = getString(id);
+                if (u != null && !u.trim().isEmpty()) return u.trim();
+            }
+        } catch (Throwable ignored) {}
+        return "https://ak.rincynar.top";
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -196,7 +206,7 @@ public class MainActivity extends Activity {
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState);
         } else {
-            webView.loadUrl(TARGET_URL);
+            webView.loadUrl(getTargetUrl());
         }
     }
 
@@ -293,7 +303,7 @@ public class MainActivity extends Activity {
                 @Override
                 public void onClick(DialogInterface dialog, int which) {
                     try {
-                        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(TARGET_URL));
+                        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(getTargetUrl()));
                         startActivity(intent);
                     } catch (Throwable ignored) {}
                     finish();
@@ -321,7 +331,7 @@ public class MainActivity extends Activity {
                 @Override
                 public void onClick(DialogInterface dialog, int which) {
                     try {
-                        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(TARGET_URL));
+                        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(getTargetUrl()));
                         startActivity(intent);
                     } catch (Throwable ignored) {}
                     finish();
