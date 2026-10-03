@@ -52,11 +52,13 @@ public class MainActivity extends Activity {
     private static class ServerCandidate implements Comparable<ServerCandidate> {
         final String url;
         final String host;
+        final int priority;
         long latencyMs = Long.MAX_VALUE;
         boolean reachable = false;
 
-        ServerCandidate(String url) {
+        ServerCandidate(String url, int priority) {
             this.url = url;
+            this.priority = priority;
             String h = "";
             try {
                 Uri uri = Uri.parse(url);
@@ -67,7 +69,15 @@ public class MainActivity extends Activity {
 
         @Override
         public int compareTo(ServerCandidate o) {
-            return Long.compare(this.latencyMs, o.latencyMs);
+            if (this.reachable != o.reachable) {
+                return this.reachable ? -1 : 1;
+            }
+            // If latency difference is significant (> 80ms), pick the faster node
+            if (Math.abs(this.latencyMs - o.latencyMs) > 80) {
+                return Long.compare(this.latencyMs, o.latencyMs);
+            }
+            // Otherwise preserve official priority order from servers.xml
+            return Integer.compare(this.priority, o.priority);
         }
     }
 
@@ -113,8 +123,8 @@ public class MainActivity extends Activity {
 
         final List<String> rawUrls = getServerCandidates();
         final List<ServerCandidate> candidates = new ArrayList<>();
-        for (String u : rawUrls) {
-            candidates.add(new ServerCandidate(u));
+        for (int i = 0; i < rawUrls.size(); i++) {
+            candidates.add(new ServerCandidate(rawUrls.get(i), i));
         }
 
         new Thread(new Runnable() {
@@ -390,20 +400,23 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                // Support older Android/WebView versions
+                cancelLoadTimeout();
+                final int nextIndex = currentCandidateIndex + 1;
+                mainHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        tryConnectCandidate(nextIndex);
+                    }
+                });
+            }
+
+            @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (request == null || !request.isForMainFrame()) return;
-                // Only failover on genuine connection-level failures (host lookup, connect, io, timeout).
-                // Do NOT failover on SSL handshake error (already handled by onReceivedSslError.proceed())
-                // or HTTP-level errors (handled by onReceivedHttpError/watchdog).
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    int code = error.getErrorCode();
-                    if (code != WebViewClient.ERROR_HOST_LOOKUP
-                            && code != WebViewClient.ERROR_CONNECT
-                            && code != WebViewClient.ERROR_IO
-                            && code != WebViewClient.ERROR_TIMEOUT) {
-                        return;
-                    }
-                }
+                // Any network failure on the main frame (ERR_CONNECTION_RESET, ERR_CONNECT, ERR_TIMEOUT, etc.)
+                // MUST trigger immediate seamless failover to the next candidate node!
                 cancelLoadTimeout();
                 final int nextIndex = currentCandidateIndex + 1;
                 mainHandler.post(new Runnable() {
@@ -418,9 +431,8 @@ public class MainActivity extends Activity {
             public void onReceivedHttpError(WebView view, WebResourceRequest request,
                     WebResourceResponse errorResponse) {
                 if (request == null || !request.isForMainFrame()) return;
-                // Failover on 5xx: Cloudflare may serve an error page which triggers
-                // onPageFinished (cancelling the watchdog) but never loads the game.
-                if (errorResponse != null && errorResponse.getStatusCode() >= 500) {
+                // Failover if server returns HTTP error status (4xx or 5xx) on main document
+                if (errorResponse != null && errorResponse.getStatusCode() >= 400) {
                     cancelLoadTimeout();
                     final int nextIndex = currentCandidateIndex + 1;
                     mainHandler.post(new Runnable() {
