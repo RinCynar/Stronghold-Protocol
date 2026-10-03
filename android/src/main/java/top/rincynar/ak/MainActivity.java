@@ -15,6 +15,8 @@ import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
+import android.net.http.SslError;
+import android.webkit.SslErrorHandler;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -59,9 +61,6 @@ public class MainActivity extends Activity {
             try {
                 Uri uri = Uri.parse(url);
                 h = uri.getHost();
-                if (h != null) {
-                    h = java.net.IDN.toASCII(h);
-                }
             } catch (Throwable ignored) {}
             this.host = h != null ? h : "";
         }
@@ -412,10 +411,52 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                // Proceed through SSL errors rather than silently aborting the load.
+                handler.proceed();
+            }
+
+            @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                if (request != null && request.isForMainFrame()) {
+                if (request == null || !request.isForMainFrame()) return;
+                // Only failover on genuine connection-level failures; ignore HTTP-level
+                // errors (403, challenge pages, etc.) which are handled by onReceivedHttpError
+                // or the watchdog, to avoid a false-positive failover cascade.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    int code = error.getErrorCode();
+                    if (code != WebViewClient.ERROR_HOST_LOOKUP
+                            && code != WebViewClient.ERROR_CONNECT
+                            && code != WebViewClient.ERROR_IO
+                            && code != WebViewClient.ERROR_TIMEOUT
+                            && code != WebViewClient.ERROR_FAILED_SSL_HANDSHAKE) {
+                        return;
+                    }
+                }
+                cancelLoadTimeout();
+                final int nextIndex = currentCandidateIndex + 1;
+                mainHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        tryConnectCandidate(nextIndex);
+                    }
+                });
+            }
+
+            @Override
+            public void onReceivedHttpError(WebView view, WebResourceRequest request,
+                    WebResourceResponse errorResponse) {
+                if (request == null || !request.isForMainFrame()) return;
+                // Failover on 5xx: Cloudflare may serve an error page which triggers
+                // onPageFinished (cancelling the watchdog) but never loads the game.
+                if (errorResponse != null && errorResponse.getStatusCode() >= 500) {
                     cancelLoadTimeout();
-                    tryConnectCandidate(currentCandidateIndex + 1);
+                    final int nextIndex = currentCandidateIndex + 1;
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            tryConnectCandidate(nextIndex);
+                        }
+                    });
                 }
             }
         });
@@ -489,6 +530,12 @@ public class MainActivity extends Activity {
         ws.setMinimumFontSize(1);
         ws.setMinimumLogicalFontSize(1);
         ws.setCacheMode(WebSettings.LOAD_DEFAULT);
+        // Mimic Chrome for Android to pass Cloudflare browser integrity checks.
+        // The default Android WebView UA can differ in TLS fingerprint / headers
+        // and get flagged by Cloudflare Bot Management.
+        ws.setUserAgentString(
+            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
+            + "(KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36");
 
         try {
             ws.setDatabaseEnabled(true);
