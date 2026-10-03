@@ -57,8 +57,8 @@ public class MainActivity extends Activity {
             }
         } catch (Throwable ignored) {}
         if (list.isEmpty()) {
-            list.add("https://ak.s.rincynar.top");
             list.add("https://ak.rincynar.top");
+            list.add("https://ak.s.rincynar.top");
             list.add("https://stronghold-protocol-zmmq.onrender.com");
         }
         return list;
@@ -285,7 +285,7 @@ public class MainActivity extends Activity {
                 String host = uri.getHost();
                 if (host != null) {
                     String lower = host.toLowerCase();
-                    if (lower.endsWith("rincynar.top") || lower.endsWith("onrender.com") || lower.endsWith("rincyanr.top")) {
+                    if (lower.endsWith("rincynar.top") || lower.endsWith("onrender.com")) {
                         return false;
                     }
                 }
