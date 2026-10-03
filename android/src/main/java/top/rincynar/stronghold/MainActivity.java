@@ -26,6 +26,7 @@ import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
+import android.os.PowerManager;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 
@@ -35,6 +36,7 @@ public class MainActivity extends Activity {
     private WebView webView;
     private ProgressBar progressBar;
     private long backPressedTime = 0;
+    private PowerManager.WakeLock wakeLock;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -312,11 +314,39 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void acquireWakeLock() {
+        try {
+            if (wakeLock == null) {
+                PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                if (pm != null) {
+                    wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Stronghold:KeepAlive");
+                    wakeLock.setReferenceCounted(false);
+                }
+            }
+            if (wakeLock != null && !wakeLock.isHeld()) {
+                wakeLock.acquire(15 * 60 * 1000L); // 15 min keep-alive
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private void releaseWakeLock() {
+        try {
+            if (wakeLock != null && wakeLock.isHeld()) {
+                wakeLock.release();
+            }
+        } catch (Throwable ignored) {}
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+        KeepAliveService.stop(this);
+        releaseWakeLock();
         if (webView != null) {
-            try { webView.onResume(); } catch (Throwable ignored) {}
+            try {
+                webView.onResume();
+                webView.evaluateJavascript("if (window.dispatchEvent) { window.dispatchEvent(new Event('focus')); }", null);
+            } catch (Throwable ignored) {}
         }
         hideSystemUI();
     }
@@ -324,13 +354,23 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
-        if (webView != null) {
-            try { webView.onPause(); } catch (Throwable ignored) {}
+        // DO NOT call webView.onPause()! Pausing WebView stops JavaScript timers and drops WebSocket immediately.
+        acquireWakeLock();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (!isFinishing()) {
+            KeepAliveService.start(this);
+            acquireWakeLock();
         }
     }
 
     @Override
     protected void onDestroy() {
+        KeepAliveService.stop(this);
+        releaseWakeLock();
         if (webView != null) {
             try {
                 rootContainer.removeView(webView);
