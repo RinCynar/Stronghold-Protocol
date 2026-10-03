@@ -23,12 +23,10 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class AssetCacheManager {
     private static final String CACHE_DIR_NAME = "game_asset_cache";
-    private final Context context;
     private final File cacheDir;
     private final ConcurrentHashMap<String, Object> locks = new ConcurrentHashMap<>();
 
     public AssetCacheManager(Context context) {
-        this.context = context.getApplicationContext();
         this.cacheDir = new File(context.getFilesDir(), CACHE_DIR_NAME);
         if (!cacheDir.exists()) {
             cacheDir.mkdirs();
@@ -44,11 +42,7 @@ public class AssetCacheManager {
         }
         String path = uri.getPath();
         if (path == null) return false;
-        return path.startsWith("/assets/")
-            || path.startsWith("/fonts/")
-            || path.startsWith("/vendor/")
-            || path.startsWith("/css/")
-            || path.startsWith("/js/");
+        return path.startsWith("/assets/") || path.startsWith("/fonts/") || path.startsWith("/vendor/");
     }
 
     public WebResourceResponse intercept(WebResourceRequest request) {
@@ -60,28 +54,8 @@ public class AssetCacheManager {
         if (path == null) return null;
         if (path.startsWith("/")) path = path.substring(1);
 
-        String mime = getMimeType(path);
-
-        // 0. If embedded in APK (Full offline package), serve directly from APK assets
-        try {
-            InputStream is = context.getAssets().open("game/" + path);
-            if (is != null) {
-                WebResourceResponse response = new WebResourceResponse(mime, null, is);
-                Map<String, String> headers = new HashMap<>();
-                headers.put("Access-Control-Allow-Origin", "*");
-                headers.put("Cache-Control", "public, max-age=31536000, immutable");
-                headers.put("Accept-Ranges", "bytes");
-                response.setResponseHeaders(headers);
-                return response;
-            }
-        } catch (IOException ignored) {}
-
-        // For non-embedded assets, only cache static assets/fonts/vendor to avoid stale dynamic code
-        if (!path.startsWith("assets/") && !path.startsWith("fonts/") && !path.startsWith("vendor/")) {
-            return null; // let WebView handle css/js via normal HTTP cache headers
-        }
-
         File targetFile = new File(cacheDir, path.replace('/', File.separatorChar));
+        String mime = getMimeType(path);
 
         // 1. If cached on disk, serve directly from local storage with zero network traffic
         if (targetFile.exists() && targetFile.length() > 0) {

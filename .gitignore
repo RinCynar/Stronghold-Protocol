@@ -32,5 +32,4 @@ desktop.ini
 # --- Android build artifacts ---
 android/build/
 android/*.apk
-*_full.apk
 *.idsig

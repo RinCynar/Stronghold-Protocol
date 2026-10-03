@@ -127,46 +127,20 @@ def main():
         {
             "name": "Stronghold-Protocol_rc.apk",
             "base_apk": base_rc_apk,
-            "embed_assets": False,
-            "desc": "RC 反代端 (在线轻量版 ~40KB)"
+            "desc": "RC 反代端 (在线客户端 ~41KB)"
         },
         {
             "name": "Stronghold-Protocol_starst.apk",
             "base_apk": base_starst_apk,
-            "embed_assets": False,
-            "desc": "Starst 源站端 (在线轻量版 ~40KB)"
-        },
-        {
-            "name": "Stronghold-Protocol_rc_full.apk",
-            "base_apk": base_rc_apk,
-            "embed_assets": True,
-            "desc": "RC 反代端 (全量内嵌离线资源版 ~246MB)"
-        },
-        {
-            "name": "Stronghold-Protocol_starst_full.apk",
-            "base_apk": base_starst_apk,
-            "embed_assets": True,
-            "desc": "Starst 源站端 (全量内嵌离线资源版 ~246MB)"
+            "desc": "Starst 源站端 (在线客户端 ~41KB)"
         },
     ]
-
-    # Pre-scan assets if any full target is requested
-    asset_files_list = []
-    for root, dirs, files in os.walk(public_dir):
-        if "dev" in root.replace("\\", "/").split("/"):
-            continue
-        for f in files:
-            full_path = os.path.join(root, f)
-            rel_path = os.path.relpath(full_path, public_dir).replace("\\", "/")
-            asset_files_list.append((full_path, "assets/game/" + rel_path))
-
-    print(f"Total static assets available for embedding: {len(asset_files_list)} files.")
 
     output_apks = []
 
     for idx, target in enumerate(targets, 1):
         apk_name = target["name"]
-        print(f"\n[{idx}/4] Building {apk_name} ({target['desc']})...")
+        print(f"\n[{idx}/2] Building {apk_name} ({target['desc']})...")
         t_sub_start = time.time()
 
         raw_apk = os.path.join(build_dir, f"raw_{idx}.apk")
@@ -176,13 +150,9 @@ def main():
 
         shutil.copyfile(target["base_apk"], raw_apk)
 
-        # Append classes.dex and optionally game assets
+        # Append classes.dex
         with zipfile.ZipFile(raw_apk, "a", compression=zipfile.ZIP_DEFLATED) as z:
             z.write(classes_dex, "classes.dex")
-            if target["embed_assets"]:
-                print(f"    Packaging {len(asset_files_list)} embedded game assets into APK...")
-                for full_path, arc_name in asset_files_list:
-                    z.write(full_path, arc_name)
 
         # Zipalign
         subprocess.check_call([zipalign, "-p", "-f", "4", raw_apk, aligned_apk])
@@ -220,7 +190,7 @@ def main():
 
     total_time = time.time() - start_time
     print(f"\n=======================================================")
-    print(f"ALL 4 APKS BUILT AND SIGNED SUCCESSFULLY in {total_time:.1f}s!")
+    print(f"BOTH APKS BUILT AND SIGNED SUCCESSFULLY in {total_time:.1f}s!")
     print(f"=======================================================")
     for name, size, desc in output_apks:
         print(f" - {name:<35} {size:>10}  | {desc}")
