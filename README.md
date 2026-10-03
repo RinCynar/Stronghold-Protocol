@@ -6,6 +6,11 @@
 ![license](https://img.shields.io/badge/code%20license-GPL--3.0--or--later-blue)
 ![node](https://img.shields.io/badge/node-22%20%7C%2024-339933)
 
+> 🎮 **在线直接游玩（网页版）**：[https://ak.rincynar.top](https://ak.rincynar.top)  
+> 📱 **Android 手机客户端**：[下载最新 APK (GitHub Releases)](../../releases/latest)  
+> 
+> 💡 **说明**：本仓库通过 Cloudflare Workers（见 [`cloudflare/worker.js`](cloudflare/worker.js)）反向代理了社区公网实例 `https://game.starst.site`，提供全球 CDN 边缘素材加速与 WebSocket 穿透；针对手机浏览器上下导航栏遮挡游戏视野的问题，制作了沉浸式全屏横屏的 Android APK 客户端（源码见 [`android/`](android/)，大小仅约 34 KB）。
+
 ## 声明
 
 > [!IMPORTANT]
@@ -199,6 +204,8 @@ RENDER_E2E=1 node --test 'test/render/*.browser.test.js'   # 渲染测试，部�
 | `scripts/` | 启动脚本（Windows / macOS / Linux）、Windows 开机自启 |
 | `docs/` | 文档与调研 |
 | `test/` | `node:test` 测试 |
+| `android/` | Android 客户端源码与构建脚本（全屏沉浸横屏、自适应图标、i18n、容错兜底） |
+| `cloudflare/` | Cloudflare Worker 反向代理与 CDN 边缘加速脚本 |
 
 ## 许可证
 

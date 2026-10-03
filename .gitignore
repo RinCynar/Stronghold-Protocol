@@ -37,3 +37,8 @@ desktop.ini
 .idea/
 .vscode/
 .claude/
+
+# --- Android build artifacts ---
+android/build/
+android/*.apk
+*.idsig
