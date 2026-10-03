@@ -29,10 +29,16 @@ import android.widget.Toast;
 import android.os.PowerManager;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends Activity {
     private FrameLayout rootContainer;
@@ -41,8 +47,34 @@ public class MainActivity extends Activity {
     private long backPressedTime = 0;
     private PowerManager.WakeLock wakeLock;
 
+    private static class ServerCandidate implements Comparable<ServerCandidate> {
+        final String url;
+        final String host;
+        long latencyMs = Long.MAX_VALUE;
+        boolean reachable = false;
+
+        ServerCandidate(String url) {
+            this.url = url;
+            String h = "";
+            try {
+                Uri uri = Uri.parse(url);
+                h = uri.getHost();
+            } catch (Throwable ignored) {}
+            this.host = h != null ? h : "";
+        }
+
+        @Override
+        public int compareTo(ServerCandidate o) {
+            return Long.compare(this.latencyMs, o.latencyMs);
+        }
+    }
+
     private String currentActiveUrl = null;
-    private boolean isElecting = false;
+    private List<ServerCandidate> sortedCandidates = new ArrayList<>();
+    private int currentCandidateIndex = 0;
+    private boolean isPinging = false;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private Runnable loadTimeoutRunnable = null;
 
     private List<String> getServerCandidates() {
         List<String> list = new ArrayList<>();
@@ -64,88 +96,141 @@ public class MainActivity extends Activity {
         return list;
     }
 
-    private void startServerElection() {
-        if (isElecting) return;
-        isElecting = true;
+    private void startServerPingAndConnect() {
+        if (isPinging) return;
+        isPinging = true;
+        cancelLoadTimeout();
+
         if (progressBar != null) {
             progressBar.setVisibility(View.VISIBLE);
             progressBar.setIndeterminate(true);
         }
 
+        final List<String> rawUrls = getServerCandidates();
+        final List<ServerCandidate> candidates = new ArrayList<>();
+        for (String u : rawUrls) {
+            candidates.add(new ServerCandidate(u));
+        }
+
         new Thread(new Runnable() {
             @Override
             public void run() {
-                final List<String> candidates = getServerCandidates();
-                final String workingUrl = electWorkingServer(candidates);
-                new Handler(Looper.getMainLooper()).post(new Runnable() {
+                ExecutorService pool = Executors.newFixedThreadPool(Math.min(candidates.size(), 4));
+                final CountDownLatch latch = new CountDownLatch(candidates.size());
+
+                for (final ServerCandidate c : candidates) {
+                    pool.submit(new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                pingCandidate(c);
+                            } finally {
+                                latch.countDown();
+                            }
+                        }
+                    });
+                }
+
+                try {
+                    latch.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {}
+                pool.shutdownNow();
+
+                final List<ServerCandidate> reachable = new ArrayList<>();
+                for (ServerCandidate c : candidates) {
+                    if (c.reachable) {
+                        reachable.add(c);
+                    }
+                }
+                Collections.sort(reachable);
+
+                mainHandler.post(new Runnable() {
                     @Override
                     public void run() {
-                        isElecting = false;
+                        isPinging = false;
                         if (isFinishing() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && isDestroyed())) {
                             return;
                         }
-                        if (progressBar != null) {
-                            progressBar.setIndeterminate(false);
-                            progressBar.setVisibility(View.GONE);
-                        }
-                        if (workingUrl != null) {
-                            currentActiveUrl = workingUrl;
-                            if (webView != null) {
-                                webView.loadUrl(workingUrl);
+
+                        if (reachable.isEmpty()) {
+                            for (ServerCandidate c : candidates) {
+                                reachable.add(c);
                             }
-                        } else {
-                            showUnavailableView();
                         }
+
+                        sortedCandidates = reachable;
+                        tryConnectCandidate(0);
                     }
                 });
             }
         }).start();
     }
 
-    private String electWorkingServer(List<String> candidates) {
-        for (String urlStr : candidates) {
-            if (testServer(urlStr)) {
-                return urlStr;
+    private void pingCandidate(ServerCandidate candidate) {
+        if (candidate.host.isEmpty()) return;
+        Socket socket = null;
+        try {
+            long t0 = System.currentTimeMillis();
+            socket = new Socket();
+            socket.connect(new InetSocketAddress(candidate.host, 443), 3500);
+            long elapsed = System.currentTimeMillis() - t0;
+            candidate.latencyMs = elapsed;
+            candidate.reachable = true;
+        } catch (Throwable t) {
+            candidate.reachable = false;
+            candidate.latencyMs = Long.MAX_VALUE;
+        } finally {
+            if (socket != null) {
+                try { socket.close(); } catch (Throwable ignored) {}
             }
         }
-        return null;
     }
 
-    private boolean testServer(String baseUrl) {
-        HttpURLConnection conn = null;
-        try {
-            String testUrl = baseUrl.endsWith("/") ? baseUrl + "healthz" : baseUrl + "/healthz";
-            URL url = new URL(testUrl);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("GET");
-            conn.setConnectTimeout(2500);
-            conn.setReadTimeout(2500);
-            conn.setInstanceFollowRedirects(true);
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Mobile; Android) StrongholdProtocol");
-            int code = conn.getResponseCode();
-            if (code >= 200 && code < 400) {
-                return true;
+    private void tryConnectCandidate(int index) {
+        cancelLoadTimeout();
+        if (sortedCandidates == null || index >= sortedCandidates.size()) {
+            if (progressBar != null) {
+                progressBar.setIndeterminate(false);
+                progressBar.setVisibility(View.GONE);
             }
-            if (code == 404) {
-                conn.disconnect();
-                conn = (HttpURLConnection) new URL(baseUrl).openConnection();
-                conn.setRequestMethod("HEAD");
-                conn.setConnectTimeout(2000);
-                conn.setReadTimeout(2000);
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Mobile; Android) StrongholdProtocol");
-                int rootCode = conn.getResponseCode();
-                return rootCode >= 200 && rootCode < 400;
-            }
-        } catch (Throwable ignored) {
-        } finally {
-            if (conn != null) {
-                try { conn.disconnect(); } catch (Throwable ignored) {}
-            }
+            showUnavailableView();
+            return;
         }
-        return false;
+
+        currentCandidateIndex = index;
+        final ServerCandidate target = sortedCandidates.get(index);
+        currentActiveUrl = target.url;
+
+        if (progressBar != null) {
+            progressBar.setVisibility(View.VISIBLE);
+            progressBar.setIndeterminate(true);
+        }
+
+        if (webView != null) {
+            webView.loadUrl(target.url);
+        }
+
+        loadTimeoutRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (isFinishing() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && isDestroyed())) {
+                    return;
+                }
+                tryConnectCandidate(currentCandidateIndex + 1);
+            }
+        };
+        mainHandler.postDelayed(loadTimeoutRunnable, 12000);
+    }
+
+    private void cancelLoadTimeout() {
+        if (loadTimeoutRunnable != null) {
+            mainHandler.removeCallbacks(loadTimeoutRunnable);
+            loadTimeoutRunnable = null;
+        }
     }
 
     private void showUnavailableView() {
+        cancelLoadTimeout();
         if (webView == null) return;
         final String html = "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"/>"
             + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/>"
@@ -278,7 +363,7 @@ public class MainActivity extends Activity {
                 if (request == null || request.getUrl() == null) return false;
                 String url = request.getUrl().toString();
                 if (url.startsWith("https://retry.local") || url.startsWith("http://retry.local")) {
-                    startServerElection();
+                    startServerPingAndConnect();
                     return true;
                 }
                 Uri uri = request.getUrl();
@@ -309,7 +394,11 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                if (url != null && !url.startsWith("https://retry.local")) {
+                    cancelLoadTimeout();
+                }
                 if (progressBar != null) {
+                    progressBar.setIndeterminate(false);
                     progressBar.setVisibility(View.GONE);
                 }
                 hideSystemUI();
@@ -318,11 +407,9 @@ public class MainActivity extends Activity {
 
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                if (progressBar != null) {
-                    progressBar.setVisibility(View.GONE);
-                }
                 if (request != null && request.isForMainFrame()) {
-                    showUnavailableView();
+                    cancelLoadTimeout();
+                    tryConnectCandidate(currentCandidateIndex + 1);
                 }
             }
         });
@@ -345,7 +432,7 @@ public class MainActivity extends Activity {
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState);
         } else {
-            startServerElection();
+            startServerPingAndConnect();
         }
     }
 
