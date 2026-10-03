@@ -120,7 +120,7 @@ public class MainActivity extends Activity {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                ExecutorService pool = Executors.newFixedThreadPool(Math.min(candidates.size(), 4));
+                ExecutorService pool = Executors.newFixedThreadPool(candidates.size());
                 final CountDownLatch latch = new CountDownLatch(candidates.size());
 
                 for (final ServerCandidate c : candidates) {
@@ -224,7 +224,7 @@ public class MainActivity extends Activity {
                 tryConnectCandidate(currentCandidateIndex + 1);
             }
         };
-        mainHandler.postDelayed(loadTimeoutRunnable, 12000);
+        mainHandler.postDelayed(loadTimeoutRunnable, 25000);
     }
 
     private void cancelLoadTimeout() {
@@ -349,43 +349,16 @@ public class MainActivity extends Activity {
         webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         webView.setBackgroundColor(0xFF0C0F0E);
 
-        final AssetCacheManager assetCache = new AssetCacheManager(this);
-
         webView.setWebViewClient(new WebViewClient() {
             @Override
-            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                try {
-                    WebResourceResponse cached = assetCache.intercept(request);
-                    if (cached != null) {
-                        return cached;
-                    }
-                } catch (Throwable ignored) {}
-                return super.shouldInterceptRequest(view, request);
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return handleUrlOverride(url);
             }
 
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (request == null || request.getUrl() == null) return false;
-                String url = request.getUrl().toString();
-                if (url.startsWith("https://retry.local") || url.startsWith("http://retry.local")) {
-                    startServerPingAndConnect();
-                    return true;
-                }
-                Uri uri = request.getUrl();
-                String host = uri.getHost();
-                if (host != null) {
-                    String lower = host.toLowerCase();
-                    if (lower.endsWith("rincynar.top")) {
-                        return false;
-                    }
-                }
-                try {
-                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                    startActivity(intent);
-                    return true;
-                } catch (Throwable t) {
-                    return false;
-                }
+                return handleUrlOverride(request.getUrl().toString());
             }
 
             @Override
@@ -419,16 +392,15 @@ public class MainActivity extends Activity {
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (request == null || !request.isForMainFrame()) return;
-                // Only failover on genuine connection-level failures; ignore HTTP-level
-                // errors (403, challenge pages, etc.) which are handled by onReceivedHttpError
-                // or the watchdog, to avoid a false-positive failover cascade.
+                // Only failover on genuine connection-level failures (host lookup, connect, io, timeout).
+                // Do NOT failover on SSL handshake error (already handled by onReceivedSslError.proceed())
+                // or HTTP-level errors (handled by onReceivedHttpError/watchdog).
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     int code = error.getErrorCode();
                     if (code != WebViewClient.ERROR_HOST_LOOKUP
                             && code != WebViewClient.ERROR_CONNECT
                             && code != WebViewClient.ERROR_IO
-                            && code != WebViewClient.ERROR_TIMEOUT
-                            && code != WebViewClient.ERROR_FAILED_SSL_HANDSHAKE) {
+                            && code != WebViewClient.ERROR_TIMEOUT) {
                         return;
                     }
                 }
@@ -471,6 +443,8 @@ public class MainActivity extends Activity {
                     }
                 }
                 if (newProgress > 30) {
+                    // Page is actively receiving data and rendering, cancel watchdog timeout
+                    cancelLoadTimeout();
                     injectViewportAndLayoutFixes();
                 }
             }
@@ -481,6 +455,28 @@ public class MainActivity extends Activity {
         } else {
             startServerPingAndConnect();
         }
+    }
+
+    private boolean handleUrlOverride(String url) {
+        if (url == null || url.isEmpty()) return false;
+        if (url.startsWith("https://retry.local") || url.startsWith("http://retry.local")) {
+            startServerPingAndConnect();
+            return true;
+        }
+        Uri uri = Uri.parse(url);
+        String host = uri.getHost();
+        if (host != null && host.toLowerCase().endsWith("rincynar.top")) {
+            return false;
+        }
+        // Only open external http/https web links in the system browser
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            try {
+                Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+                startActivity(intent);
+                return true;
+            } catch (Throwable ignored) {}
+        }
+        return false;
     }
 
     private void injectViewportAndLayoutFixes() {
@@ -529,6 +525,7 @@ public class MainActivity extends Activity {
         ws.setTextZoom(100);
         ws.setMinimumFontSize(1);
         ws.setMinimumLogicalFontSize(1);
+        ws.setJavaScriptCanOpenWindowsAutomatically(true);
         ws.setCacheMode(WebSettings.LOAD_DEFAULT);
         // Mimic Chrome for Android to pass Cloudflare browser integrity checks.
         // The default Android WebView UA can differ in TLS fingerprint / headers
