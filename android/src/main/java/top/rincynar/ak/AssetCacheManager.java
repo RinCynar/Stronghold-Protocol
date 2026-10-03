@@ -1,4 +1,4 @@
-package top.rincynar.stronghold;
+package top.rincynar.ak;
 
 import android.content.Context;
 import android.net.Uri;
@@ -37,7 +37,8 @@ public class AssetCacheManager {
         if (uri == null) return false;
         String host = uri.getHost();
         if (host == null) return false;
-        if (!host.equalsIgnoreCase("ak.s.rincynar.top") && !host.equalsIgnoreCase("ak.rincynar.top")) {
+        String lower = host.toLowerCase();
+        if (!lower.endsWith("rincynar.top") && !lower.endsWith("onrender.com") && !lower.endsWith("rincyanr.top")) {
             return false;
         }
         String path = uri.getPath();

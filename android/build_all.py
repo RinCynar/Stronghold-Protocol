@@ -123,14 +123,10 @@ def main():
     # Copy to project root
     shutil.copyfile(final_apk_android, final_apk_root)
 
-    # Also keep Stronghold-Protocol_rc.apk for backwards compatibility
-    rc_apk_android = os.path.join(script_dir, "Stronghold-Protocol_rc.apk")
-    rc_apk_root = os.path.join(project_root, "Stronghold-Protocol_rc.apk")
-    shutil.copyfile(final_apk_android, rc_apk_android)
-    shutil.copyfile(final_apk_android, rc_apk_root)
-
-    # Clean up deprecated Starst APKs if they exist
+    # Clean up deprecated APK variants if they exist
     for f in [
+        os.path.join(script_dir, "Stronghold-Protocol_rc.apk"),
+        os.path.join(project_root, "Stronghold-Protocol_rc.apk"),
         os.path.join(script_dir, "Stronghold-Protocol_starst.apk"),
         os.path.join(project_root, "Stronghold-Protocol_starst.apk")
     ]:
@@ -147,8 +143,7 @@ def main():
     print(f"\n=======================================================")
     print(f"APK BUILT AND SIGNED SUCCESSFULLY in {total_time:.1f}s!")
     print(f"=======================================================")
-    print(f" - Stronghold-Protocol.apk             {size_str:>10}  | 官方自建反代客户端 (目标 https://ak.s.rincynar.top)")
-    print(f" - Stronghold-Protocol_rc.apk          {size_str:>10}  | 兼容别名")
+    print(f" - Stronghold-Protocol.apk             {size_str:>10}  | 官方客户端 (包名 top.rincynar.ak, 自动节点轮询)")
     print("=======================================================\n")
 
 if __name__ == "__main__":

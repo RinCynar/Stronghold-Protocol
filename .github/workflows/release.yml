@@ -34,6 +34,7 @@ jobs:
   - Android 8.0+ 自适应图标规范 (Adaptive Icons)
   - 中英文系统自适应 (Stronghold Protocol / 卫戍协议：盟约)
   - 保持屏幕常亮、前台服务保活防掉线
-  - 静态资源本地磁盘零延迟离线持久化缓存" \
-              || gh release upload "$TAG" Stronghold-Protocol.apk Stronghold-Protocol_rc.apk --clobber
+  - 静态资源本地磁盘零延迟离线持久化缓存
+  - 启动时自动轮询候选服务器节点，无可用节点时优雅降级为重试页" \
+              || gh release upload "$TAG" Stronghold-Protocol.apk --clobber
           fi

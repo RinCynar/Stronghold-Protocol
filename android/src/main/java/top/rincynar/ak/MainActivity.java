@@ -1,4 +1,4 @@
-package top.rincynar.stronghold;
+package top.rincynar.ak;
 
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -29,6 +29,10 @@ import android.widget.Toast;
 import android.os.PowerManager;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 
 public class MainActivity extends Activity {
     private FrameLayout rootContainer;
@@ -37,12 +41,131 @@ public class MainActivity extends Activity {
     private long backPressedTime = 0;
     private PowerManager.WakeLock wakeLock;
 
-    private String getTargetUrl() {
+    private String currentActiveUrl = null;
+    private boolean isElecting = false;
+
+    private List<String> getServerCandidates() {
+        List<String> list = new ArrayList<>();
         try {
-            String u = getString(R.string.target_url);
-            if (u != null && !u.trim().isEmpty()) return u.trim();
+            String[] arr = getResources().getStringArray(R.array.server_candidates);
+            if (arr != null) {
+                for (String s : arr) {
+                    if (s != null && !s.trim().isEmpty() && !list.contains(s.trim())) {
+                        list.add(s.trim());
+                    }
+                }
+            }
         } catch (Throwable ignored) {}
-        return "https://ak.s.rincynar.top";
+        if (list.isEmpty()) {
+            list.add("https://ak.s.rincynar.top");
+            list.add("https://ak.rincynar.top");
+            list.add("https://stronghold-protocol-zmmq.onrender.com");
+        }
+        return list;
+    }
+
+    private void startServerElection() {
+        if (isElecting) return;
+        isElecting = true;
+        if (progressBar != null) {
+            progressBar.setVisibility(View.VISIBLE);
+            progressBar.setIndeterminate(true);
+        }
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final List<String> candidates = getServerCandidates();
+                final String workingUrl = electWorkingServer(candidates);
+                new Handler(Looper.getMainLooper()).post(new Runnable() {
+                    @Override
+                    public void run() {
+                        isElecting = false;
+                        if (isFinishing() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && isDestroyed())) {
+                            return;
+                        }
+                        if (progressBar != null) {
+                            progressBar.setIndeterminate(false);
+                            progressBar.setVisibility(View.GONE);
+                        }
+                        if (workingUrl != null) {
+                            currentActiveUrl = workingUrl;
+                            if (webView != null) {
+                                webView.loadUrl(workingUrl);
+                            }
+                        } else {
+                            showUnavailableView();
+                        }
+                    }
+                });
+            }
+        }).start();
+    }
+
+    private String electWorkingServer(List<String> candidates) {
+        for (String urlStr : candidates) {
+            if (testServer(urlStr)) {
+                return urlStr;
+            }
+        }
+        return null;
+    }
+
+    private boolean testServer(String baseUrl) {
+        HttpURLConnection conn = null;
+        try {
+            String testUrl = baseUrl.endsWith("/") ? baseUrl + "healthz" : baseUrl + "/healthz";
+            URL url = new URL(testUrl);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(2500);
+            conn.setReadTimeout(2500);
+            conn.setInstanceFollowRedirects(true);
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Mobile; Android) StrongholdProtocol");
+            int code = conn.getResponseCode();
+            if (code >= 200 && code < 400) {
+                return true;
+            }
+            if (code == 404) {
+                conn.disconnect();
+                conn = (HttpURLConnection) new URL(baseUrl).openConnection();
+                conn.setRequestMethod("HEAD");
+                conn.setConnectTimeout(2000);
+                conn.setReadTimeout(2000);
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Mobile; Android) StrongholdProtocol");
+                int rootCode = conn.getResponseCode();
+                return rootCode >= 200 && rootCode < 400;
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            if (conn != null) {
+                try { conn.disconnect(); } catch (Throwable ignored) {}
+            }
+        }
+        return false;
+    }
+
+    private void showUnavailableView() {
+        if (webView == null) return;
+        final String html = "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"/>"
+            + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/>"
+            + "<title>服务暂时不可用</title><style>"
+            + "* { box-sizing: border-box; margin: 0; padding: 0; }"
+            + "body { background-color: #111614; color: #d8e3de; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; user-select: none; }"
+            + ".icon { font-size: 56px; margin-bottom: 16px; line-height: 1; }"
+            + "h1 { color: #4ed8af; font-size: 26px; font-weight: 700; letter-spacing: 2px; margin-bottom: 12px; }"
+            + "p { color: #9ab3a8; font-size: 15px; line-height: 1.6; max-width: 480px; margin-bottom: 24px; }"
+            + ".btn { display: inline-block; background: #4ed8af; color: #111614; font-weight: 700; font-size: 16px; padding: 12px 36px; border-radius: 4px; text-decoration: none; border: none; cursor: pointer; box-shadow: 0 4px 14px rgba(78, 216, 175, 0.25); transition: all 0.2s ease; }"
+            + ".btn:active { transform: scale(0.96); background: #39b38f; }"
+            + ".footer { position: absolute; bottom: 16px; color: #4e635a; font-size: 12px; letter-spacing: 1px; }"
+            + "</style></head><body>"
+            + "<div class=\"icon\">⚠️</div>"
+            + "<h1>服务暂时不可用</h1>"
+            + "<p>未能连接至任何可用的卫戍协议服务器节点。<br/>请检查您的网络连接或稍后重试。</p>"
+            + "<a class=\"btn\" href=\"https://retry.local\">重新检测连接</a>"
+            + "<div class=\"footer\">STRONGHOLD PROTOCOL · COVENANT</div>"
+            + "</body></html>";
+        webView.loadDataWithBaseURL("https://retry.local", html, "text/html", "UTF-8", null);
     }
 
     @Override
@@ -102,6 +225,13 @@ public class MainActivity extends Activity {
         }
     }
 
+    private String getTargetUrl() {
+        if (currentActiveUrl != null) return currentActiveUrl;
+        List<String> list = getServerCandidates();
+        if (!list.isEmpty()) return list.get(0);
+        return "https://ak.s.rincynar.top";
+    }
+
     private void setupCrashHandler() {
         Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
             @Override
@@ -147,9 +277,17 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (request == null || request.getUrl() == null) return false;
                 String url = request.getUrl().toString();
-                if (url.startsWith("https://ak.s.rincynar.top") || url.startsWith("http://ak.s.rincynar.top")
-                        || url.startsWith("https://ak.rincynar.top") || url.startsWith("http://ak.rincynar.top")) {
-                    return false;
+                if (url.startsWith("https://retry.local") || url.startsWith("http://retry.local")) {
+                    startServerElection();
+                    return true;
+                }
+                Uri uri = request.getUrl();
+                String host = uri.getHost();
+                if (host != null) {
+                    String lower = host.toLowerCase();
+                    if (lower.endsWith("rincynar.top") || lower.endsWith("onrender.com") || lower.endsWith("rincyanr.top")) {
+                        return false;
+                    }
                 }
                 try {
                     Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
@@ -183,6 +321,9 @@ public class MainActivity extends Activity {
                 if (progressBar != null) {
                     progressBar.setVisibility(View.GONE);
                 }
+                if (request != null && request.isForMainFrame()) {
+                    showUnavailableView();
+                }
             }
         });
 
@@ -204,7 +345,7 @@ public class MainActivity extends Activity {
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState);
         } else {
-            webView.loadUrl(getTargetUrl());
+            startServerElection();
         }
     }
 

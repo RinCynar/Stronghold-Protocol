@@ -1,4 +1,4 @@
-package top.rincynar.stronghold;
+package top.rincynar.ak;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
