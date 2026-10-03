@@ -38,7 +38,7 @@ public class AssetCacheManager {
         String host = uri.getHost();
         if (host == null) return false;
         String lower = host.toLowerCase();
-        if (!lower.endsWith("rincynar.top") && !lower.endsWith("onrender.com")) {
+        if (!lower.endsWith("rincynar.top")) {
             return false;
         }
         String path = uri.getPath();

@@ -59,6 +59,9 @@ public class MainActivity extends Activity {
             try {
                 Uri uri = Uri.parse(url);
                 h = uri.getHost();
+                if (h != null) {
+                    h = java.net.IDN.toASCII(h);
+                }
             } catch (Throwable ignored) {}
             this.host = h != null ? h : "";
         }
@@ -91,7 +94,10 @@ public class MainActivity extends Activity {
         if (list.isEmpty()) {
             list.add("https://ak.rincynar.top");
             list.add("https://ak.s.rincynar.top");
-            list.add("https://stronghold-protocol-zmmq.onrender.com");
+            list.add("https://ak.1.rincynar.top");
+            list.add("https://ak.2.rincynar.top");
+            list.add("https://ak.3.rincynar.top");
+            list.add("https://ak.4.rincynar.top");
         }
         return list;
     }
@@ -370,7 +376,7 @@ public class MainActivity extends Activity {
                 String host = uri.getHost();
                 if (host != null) {
                     String lower = host.toLowerCase();
-                    if (lower.endsWith("rincynar.top") || lower.endsWith("onrender.com")) {
+                    if (lower.endsWith("rincynar.top")) {
                         return false;
                     }
                 }
