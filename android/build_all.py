@@ -29,20 +29,13 @@ def main():
     androidx_annotation = os.path.join(libs_dir, "annotation-1.6.0.jar")
     androidx_collection = os.path.join(libs_dir, "collection-1.2.0.jar")
     androidx_lifecycle = os.path.join(libs_dir, "lifecycle-common-2.6.2.jar")
-    androidx_lifecycle_process = os.path.join(libs_dir, "lifecycle-process.jar")
-    androidx_lifecycle_runtime = os.path.join(libs_dir, "lifecycle-runtime.jar")
-    kotlin_stdlib = os.path.join(libs_dir, "kotlin-stdlib.jar")
-
     # Auto-download missing libraries
     os.makedirs(libs_dir, exist_ok=True)
     required_downloads = [
         (aar_path, "https://maven.mozilla.org/maven2/org/mozilla/geckoview/geckoview-arm64-v8a/128.0.20240725162350/geckoview-arm64-v8a-128.0.20240725162350.aar", "GeckoView 128 AAR"),
         (androidx_annotation, "https://dl.google.com/dl/android/maven2/androidx/annotation/annotation/1.6.0/annotation-1.6.0.jar", "androidx.annotation"),
         (androidx_collection, "https://dl.google.com/dl/android/maven2/androidx/collection/collection/1.2.0/collection-1.2.0.jar", "androidx.collection"),
-        (androidx_lifecycle, "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-common/2.6.2/lifecycle-common-2.6.2.jar", "androidx.lifecycle"),
-        (androidx_lifecycle_process, "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-process/2.6.2/lifecycle-process-2.6.2.aar", "androidx.lifecycle-process"),
-        (androidx_lifecycle_runtime, "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-runtime/2.6.2/lifecycle-runtime-2.6.2.aar", "androidx.lifecycle-runtime"),
-        (kotlin_stdlib, "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/1.8.22/kotlin-stdlib-1.8.22.jar", "kotlin-stdlib")
+        (androidx_lifecycle, "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-common/2.6.2/lifecycle-common-2.6.2.jar", "androidx.lifecycle")
     ]
     for path, url, label in required_downloads:
         if not os.path.exists(path):
@@ -118,10 +111,7 @@ def main():
         gecko_classes_jar,
         androidx_annotation,
         androidx_collection,
-        androidx_lifecycle,
-        androidx_lifecycle_process,
-        androidx_lifecycle_runtime,
-        kotlin_stdlib
+        androidx_lifecycle
     ])
 
     subprocess.check_call([
@@ -142,10 +132,7 @@ def main():
         gecko_classes_jar,
         androidx_annotation,
         androidx_collection,
-        androidx_lifecycle,
-        androidx_lifecycle_process,
-        androidx_lifecycle_runtime,
-        kotlin_stdlib
+        androidx_lifecycle
     ]
 
     subprocess.check_call([

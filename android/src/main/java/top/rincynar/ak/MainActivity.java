@@ -250,37 +250,6 @@ public class MainActivity extends Activity {
         return "https://ak.rincynar.top";
     }
 
-    private static boolean sLifecycleInitialized = false;
-
-    private void ensureProcessLifecycleOwnerInitialized() {
-        if (sLifecycleInitialized) return;
-        try {
-            androidx.lifecycle.LifecycleDispatcher.init(getApplicationContext());
-            java.lang.reflect.Method m = androidx.lifecycle.ProcessLifecycleOwner.class.getDeclaredMethod(
-                "init$lifecycle_process_release",
-                Context.class
-            );
-            m.setAccessible(true);
-            m.invoke(null, getApplicationContext());
-            sLifecycleInitialized = true;
-        } catch (Throwable t) {
-            try {
-                java.lang.reflect.Field field = androidx.lifecycle.ProcessLifecycleOwner.class.getDeclaredField("newInstance");
-                field.setAccessible(true);
-                Object instance = field.get(null);
-                if (instance != null) {
-                    java.lang.reflect.Method attach = instance.getClass().getDeclaredMethod(
-                        "attach$lifecycle_process_release",
-                        Context.class
-                    );
-                    attach.setAccessible(true);
-                    attach.invoke(instance, getApplicationContext());
-                    sLifecycleInitialized = true;
-                }
-            } catch (Throwable ignored) {}
-        }
-    }
-
     private void setupCrashHandler() {
         final Thread.UncaughtExceptionHandler defaultHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
@@ -307,7 +276,7 @@ public class MainActivity extends Activity {
     }
 
     private void initGeckoView(Bundle savedInstanceState) {
-        ensureProcessLifecycleOwnerInitialized();
+        androidx.lifecycle.ProcessLifecycleOwner.onAppCreate();
 
         geckoView = new GeckoView(this);
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
@@ -478,16 +447,33 @@ public class MainActivity extends Activity {
     private void handleGeckoViewInitError(final Throwable t) {
         if (progressBar != null) progressBar.setVisibility(View.GONE);
 
-        String msg = t.getMessage();
-        if (msg == null || msg.isEmpty()) msg = t.getClass().getSimpleName();
+        StringWriter sw = new StringWriter();
+        t.printStackTrace(new PrintWriter(sw));
+        String stackTrace = sw.toString();
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("手机未能成功启动内置浏览器内核。\n\n");
+        sb.append("【异常类型】\n").append(t.getClass().getName()).append("\n\n");
+        sb.append("【错误详情】\n").append(t.getMessage() != null ? t.getMessage() : "无详细信息").append("\n\n");
+        if (t.getCause() != null) {
+            sb.append("【根本诱因】\n").append(t.getCause().toString()).append("\n\n");
+        }
+        sb.append("【调用堆栈 (可长按复制)】\n").append(stackTrace);
+
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        sv.setPadding(40, 20, 40, 20);
+        android.widget.TextView tv = new android.widget.TextView(this);
+        tv.setText(sb.toString());
+        tv.setTextSize(12);
+        tv.setTextColor(0xFFDDDDDD);
+        tv.setTextIsSelectable(true);
+        sv.addView(tv);
 
         new AlertDialog.Builder(this)
             .setTitle("浏览器内核启动失败")
-            .setMessage("手机未能成功启动内置浏览器内核。\n\n"
-                + "错误详情：" + msg + "\n\n"
-                + "你可以点击下方按钮直接在外部浏览器中正常游玩。")
+            .setView(sv)
             .setCancelable(false)
-            .setPositiveButton("在浏览器中打开", new DialogInterface.OnClickListener() {
+            .setPositiveButton("在外部浏览器打开", new DialogInterface.OnClickListener() {
                 @Override
                 public void onClick(DialogInterface dialog, int which) {
                     try {
@@ -512,9 +498,27 @@ public class MainActivity extends Activity {
         ex.printStackTrace(new PrintWriter(sw));
         String stackTrace = sw.toString();
 
+        StringBuilder sb = new StringBuilder();
+        sb.append("应用发生未捕获异常：\n\n");
+        sb.append("【异常类型】\n").append(ex.getClass().getName()).append("\n\n");
+        sb.append("【错误信息】\n").append(ex.getMessage() != null ? ex.getMessage() : "无").append("\n\n");
+        if (ex.getCause() != null) {
+            sb.append("【根本诱因】\n").append(ex.getCause().toString()).append("\n\n");
+        }
+        sb.append("【调用堆栈 (可长按复制)】\n").append(stackTrace);
+
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        sv.setPadding(40, 20, 40, 20);
+        android.widget.TextView tv = new android.widget.TextView(this);
+        tv.setText(sb.toString());
+        tv.setTextSize(12);
+        tv.setTextColor(0xFFDDDDDD);
+        tv.setTextIsSelectable(true);
+        sv.addView(tv);
+
         new AlertDialog.Builder(this)
             .setTitle("应用遇到错误")
-            .setMessage("错误信息：\n" + ex.getMessage() + "\n\n" + (stackTrace.length() > 300 ? stackTrace.substring(0, 300) + "..." : stackTrace))
+            .setView(sv)
             .setCancelable(false)
             .setPositiveButton("在浏览器中游玩", new DialogInterface.OnClickListener() {
                 @Override
@@ -624,12 +628,14 @@ public class MainActivity extends Activity {
                 hideSystemUI();
             }
         }, 300);
+        androidx.lifecycle.ProcessLifecycleOwner.onAppResume();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
         acquireWakeLock();
+        androidx.lifecycle.ProcessLifecycleOwner.onAppPause();
     }
 
     @Override
@@ -639,10 +645,12 @@ public class MainActivity extends Activity {
             KeepAliveService.start(this);
             acquireWakeLock();
         }
+        androidx.lifecycle.ProcessLifecycleOwner.onAppStop();
     }
 
     @Override
     protected void onDestroy() {
+        androidx.lifecycle.ProcessLifecycleOwner.onAppDestroy();
         KeepAliveService.stop(this);
         releaseWakeLock();
         if (geckoSession != null) {
