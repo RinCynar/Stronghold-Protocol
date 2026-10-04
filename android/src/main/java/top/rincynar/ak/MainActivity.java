@@ -105,12 +105,10 @@ public class MainActivity extends Activity {
         if (list.isEmpty()) {
             list.add("https://ak.rincynar.top");
             list.add("https://ak.s.rincynar.top");
-            list.add("https://stronghold-protocol.rincynar.top");
             list.add("https://ak.1.rincynar.top");
             list.add("https://ak.2.rincynar.top");
             list.add("https://ak.3.rincynar.top");
             list.add("https://ak.4.rincynar.top");
-            list.add("https://stronghold-protocol-zmmq.onrender.com");
         }
         return list;
     }
@@ -502,7 +500,7 @@ public class MainActivity extends Activity {
             String host = uri.getHost();
             if (host == null) return false;
             String h = host.toLowerCase();
-            if (h.endsWith("rincynar.top") || h.endsWith("onrender.com") || h.equals("retry.local")) {
+            if (h.endsWith("rincynar.top") || h.equals("retry.local")) {
                 return true;
             }
             if (sortedCandidates != null) {
