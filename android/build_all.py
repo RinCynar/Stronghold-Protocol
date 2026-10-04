@@ -31,7 +31,6 @@ def main():
     androidx_lifecycle = os.path.join(libs_dir, "lifecycle-common-2.6.2.jar")
     androidx_lifecycle_process = os.path.join(libs_dir, "lifecycle-process.jar")
     androidx_lifecycle_runtime = os.path.join(libs_dir, "lifecycle-runtime.jar")
-    androidx_startup_runtime = os.path.join(libs_dir, "startup-runtime.jar")
     kotlin_stdlib = os.path.join(libs_dir, "kotlin-stdlib.jar")
 
     # Auto-download missing libraries
@@ -43,7 +42,6 @@ def main():
         (androidx_lifecycle, "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-common/2.6.2/lifecycle-common-2.6.2.jar", "androidx.lifecycle"),
         (androidx_lifecycle_process, "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-process/2.6.2/lifecycle-process-2.6.2.aar", "androidx.lifecycle-process"),
         (androidx_lifecycle_runtime, "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-runtime/2.6.2/lifecycle-runtime-2.6.2.aar", "androidx.lifecycle-runtime"),
-        (androidx_startup_runtime, "https://dl.google.com/dl/android/maven2/androidx/startup/startup-runtime/1.1.1/startup-runtime-1.1.1.aar", "androidx.startup-runtime"),
         (kotlin_stdlib, "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/1.8.22/kotlin-stdlib-1.8.22.jar", "kotlin-stdlib")
     ]
     for path, url, label in required_downloads:
@@ -123,7 +121,6 @@ def main():
         androidx_lifecycle,
         androidx_lifecycle_process,
         androidx_lifecycle_runtime,
-        androidx_startup_runtime,
         kotlin_stdlib
     ])
 
@@ -148,7 +145,6 @@ def main():
         androidx_lifecycle,
         androidx_lifecycle_process,
         androidx_lifecycle_runtime,
-        androidx_startup_runtime,
         kotlin_stdlib
     ]
 

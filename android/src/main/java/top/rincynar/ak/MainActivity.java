@@ -2,6 +2,7 @@ package top.rincynar.ak;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.net.Uri;
@@ -249,21 +250,65 @@ public class MainActivity extends Activity {
         return "https://ak.rincynar.top";
     }
 
+    private static boolean sLifecycleInitialized = false;
+
+    private void ensureProcessLifecycleOwnerInitialized() {
+        if (sLifecycleInitialized) return;
+        try {
+            androidx.lifecycle.LifecycleDispatcher.init(getApplicationContext());
+            java.lang.reflect.Method m = androidx.lifecycle.ProcessLifecycleOwner.class.getDeclaredMethod(
+                "init$lifecycle_process_release",
+                Context.class
+            );
+            m.setAccessible(true);
+            m.invoke(null, getApplicationContext());
+            sLifecycleInitialized = true;
+        } catch (Throwable t) {
+            try {
+                java.lang.reflect.Field field = androidx.lifecycle.ProcessLifecycleOwner.class.getDeclaredField("newInstance");
+                field.setAccessible(true);
+                Object instance = field.get(null);
+                if (instance != null) {
+                    java.lang.reflect.Method attach = instance.getClass().getDeclaredMethod(
+                        "attach$lifecycle_process_release",
+                        Context.class
+                    );
+                    attach.setAccessible(true);
+                    attach.invoke(instance, getApplicationContext());
+                    sLifecycleInitialized = true;
+                }
+            } catch (Throwable ignored) {}
+        }
+    }
+
     private void setupCrashHandler() {
+        final Thread.UncaughtExceptionHandler defaultHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
             @Override
             public void uncaughtException(Thread thread, final Throwable ex) {
-                new Handler(Looper.getMainLooper()).post(new Runnable() {
-                    @Override
-                    public void run() {
-                        showCrashDialog(ex);
+                try {
+                    new Handler(Looper.getMainLooper()).post(new Runnable() {
+                        @Override
+                        public void run() {
+                            showCrashDialog(ex);
+                        }
+                    });
+                    if (Looper.myLooper() == null) {
+                        Looper.prepare();
                     }
-                });
+                    Looper.loop();
+                } catch (Throwable t) {
+                    if (defaultHandler != null) {
+                        defaultHandler.uncaughtException(thread, ex);
+                    }
+                }
             }
         });
     }
 
     private void initGeckoView(Bundle savedInstanceState) {
+        ensureProcessLifecycleOwnerInitialized();
+
         geckoView = new GeckoView(this);
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
