@@ -86,7 +86,20 @@ public class MainActivity extends Activity {
             }
         } catch (Throwable ignored) {}
         if (list.isEmpty()) {
-            list.add("https://ak.rincynar.top");
+            list.add("https://1.arkimg.dpdns.org");
+            list.add("https://2.arkimg.dpdns.org");
+            list.add("https://3.arkimg.dpdns.org");
+            list.add("https://4.arkimg.dpdns.org");
+            list.add("https://1.agmua.dpdns.org");
+            list.add("https://2.agmua.dpdns.org");
+            list.add("https://3.agmua.dpdns.org");
+            list.add("https://4.agmua.dpdns.org");
+            list.add("https://ak.1.rincynar.top");
+            list.add("https://ak.2.rincynar.top");
+            list.add("https://ak.3.rincynar.top");
+            list.add("https://ak.4.rincynar.top");
+            list.add("https://arkimg.dpdns.org");
+            list.add("https://stronghold-protocol.rincynar.top");
         }
         return list;
     }
@@ -143,10 +156,35 @@ public class MainActivity extends Activity {
                 failoverToNextCandidate("连接超时");
             }
         };
-        mainHandler.postDelayed(loadTimeoutRunnable, 15000);
+        mainHandler.postDelayed(loadTimeoutRunnable, 10000);
     }
 
-    private void failoverToNextCandidate(String reason) {
+    private boolean isErrorTitleOrContent(String title) {
+        if (title == null) return false;
+        String t = title.toLowerCase().trim();
+        if (t.contains("error 1027") || t.contains("rate limited")
+                || t.contains("plan limits") || t.contains("error code: 1027")
+                || (t.contains("1027") && t.contains("error"))) {
+            return true;
+        }
+        if (t.contains("502 bad gateway") || t.contains("503 service")
+                || t.contains("504 gateway") || t.contains("500 internal server")
+                || t.contains("429 too many") || t.contains("403 forbidden")) {
+            return true;
+        }
+        if (t.contains("520 web server") || t.contains("521 web server")
+                || t.contains("522 connection") || t.contains("523 origin")
+                || t.contains("524 a timeout") || t.contains("525 ssl")
+                || t.contains("526 invalid") || t.contains("1015") || t.contains("1020")) {
+            return true;
+        }
+        if (t.contains("cloudflare") && (t.contains("error") || t.contains("attention required") || t.contains("temporarily") || t.contains("limited"))) {
+            return true;
+        }
+        return false;
+    }
+
+    private synchronized void failoverToNextCandidate(String reason) {
         cancelLoadTimeout();
         if (currentCandidateIndex == lastFailedCandidateIndex) {
             return; // Already failed over for this candidate
@@ -156,9 +194,45 @@ public class MainActivity extends Activity {
         mainHandler.post(new Runnable() {
             @Override
             public void run() {
+                try {
+                    Toast.makeText(MainActivity.this, "节点异常，正在切换至备用线路...", Toast.LENGTH_SHORT).show();
+                } catch (Throwable ignored) {}
                 tryConnectCandidate(nextIndex);
             }
         });
+    }
+
+    private void checkPageForErrors() {
+        if (geckoSession == null) return;
+        try {
+            geckoSession.getFinder().find("error code: 1027", 0).then(new GeckoResult.OnValueListener<GeckoSession.FinderResult, Void>() {
+                @Override
+                public GeckoResult<Void> onValue(GeckoSession.FinderResult result) {
+                    if (result != null && result.found) {
+                        try {
+                            if (geckoSession != null) geckoSession.getFinder().clear();
+                        } catch (Throwable ignored) {}
+                        failoverToNextCandidate("检测到 Cloudflare Error 1027");
+                        return null;
+                    }
+                    if (geckoSession != null) {
+                        geckoSession.getFinder().find("rate limited", 0).then(new GeckoResult.OnValueListener<GeckoSession.FinderResult, Void>() {
+                            @Override
+                            public GeckoResult<Void> onValue(GeckoSession.FinderResult r2) {
+                                if (r2 != null && r2.found) {
+                                    try {
+                                        if (geckoSession != null) geckoSession.getFinder().clear();
+                                    } catch (Throwable ignored) {}
+                                    failoverToNextCandidate("检测到 Rate Limited");
+                                }
+                                return null;
+                            }
+                        });
+                    }
+                    return null;
+                }
+            });
+        } catch (Throwable ignored) {}
     }
 
     private void cancelLoadTimeout() {
@@ -247,7 +321,7 @@ public class MainActivity extends Activity {
         if (currentActiveUrl != null) return currentActiveUrl;
         List<String> list = getServerCandidates();
         if (!list.isEmpty()) return list.get(0);
-        return "https://ak.rincynar.top";
+        return "https://1.arkimg.dpdns.org";
     }
 
     private void setupCrashHandler() {
@@ -337,6 +411,17 @@ public class MainActivity extends Activity {
 
         geckoSession.setContentDelegate(new GeckoSession.ContentDelegate() {
             @Override
+            public void onTitleChange(GeckoSession session, String title) {
+                if (title != null) {
+                    if (isErrorTitleOrContent(title)) {
+                        failoverToNextCandidate("检测到错误页面标题: " + title);
+                    } else if (title.contains("卫戍协议") || title.contains("STRONGHOLD")) {
+                        cancelLoadTimeout();
+                    }
+                }
+            }
+
+            @Override
             public void onFullScreen(GeckoSession session, boolean fullScreen) {
                 // Intercept and prevent DOM element fullscreen to avoid viewport desync
                 if (fullScreen && session != null) {
@@ -358,14 +443,21 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageStop(GeckoSession session, boolean success) {
-                if (success) {
-                    cancelLoadTimeout();
-                }
                 if (progressBar != null) {
                     progressBar.setIndeterminate(false);
                     progressBar.setVisibility(View.GONE);
                 }
                 hideSystemUI();
+                checkPageForErrors();
+                mainHandler.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        checkPageForErrors();
+                        if (currentCandidateIndex != lastFailedCandidateIndex) {
+                            cancelLoadTimeout();
+                        }
+                    }
+                }, 800);
             }
 
             @Override
@@ -376,9 +468,6 @@ public class MainActivity extends Activity {
                     if (progress >= 100) {
                         progressBar.setVisibility(View.GONE);
                     }
-                }
-                if (progress > 30) {
-                    cancelLoadTimeout();
                 }
             }
         });
@@ -395,6 +484,11 @@ public class MainActivity extends Activity {
                     return GeckoResult.fromValue(AllowOrDeny.ALLOW);
                 }
                 String url = request.uri;
+                if (url.startsWith("https://retry.local/next") || url.startsWith("sp://retry/next")
+                        || url.startsWith("https://retry.local/failover")) {
+                    failoverToNextCandidate("检测到节点异常: " + url);
+                    return GeckoResult.fromValue(AllowOrDeny.DENY);
+                }
                 if (url.startsWith("https://retry.local") || url.startsWith("sp://retry")) {
                     startServerConnect();
                     return GeckoResult.fromValue(AllowOrDeny.DENY);
@@ -441,7 +535,7 @@ public class MainActivity extends Activity {
             String host = uri.getHost();
             if (host == null) return false;
             String h = host.toLowerCase();
-            if (h.endsWith("rincynar.top") || h.equals("retry.local")) {
+            if (h.endsWith("rincynar.top") || h.endsWith("arkimg.dpdns.org") || h.endsWith("dpdns.org") || h.equals("retry.local")) {
                 return true;
             }
             if (candidateList != null) {

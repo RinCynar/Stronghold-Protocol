@@ -7,9 +7,11 @@
 ![node](https://img.shields.io/badge/node-22%20%7C%2024-339933)
 
 > 🎮 **在线直接游玩（网页版）**：[https://ak.rincynar.top](https://ak.rincynar.top)  
-> 📱 **Android 手机客户端**：[下载最新 APK (GitHub Releases)](../../releases/latest)  
+> 📱 **Android 手机客户端**：[下载最新 APK (GitHub Releases)](../../releases/latest) **（更推荐）**  
 > 
-> 💡 **说明**：本项目提供全球边缘加速与 WebSocket 实时穿透；针对手机端体验，提供沉浸式全屏横屏的 Android 客户端（内置独立现代浏览器内核 GeckoView，原生支持 ECH 与 DoH 加密，直连免疫 GFW TCP RST 阻断，支持后台防掉线保活）。
+> 💡 **说明**：
+> - 网页版所提供的 `https://ak.rincynar.top` 仅为公共接入节点之一，若遇网络波动可能受限；
+> - **更推荐使用 Android 手机客户端**：客户端内置了多节点智能健康探测与自动轮询故障转移机制，当个别线路出现波动或限流时能无缝自动切换至可用线路，保障游玩不中断；同时内置独立现代浏览器内核 GeckoView，原生支持 ECH 与 DoH 加密，直连免疫 GFW TCP RST 阻断，并提供沉浸式全屏横屏与后台防掉线保活体验。
 
 ## 声明
 
