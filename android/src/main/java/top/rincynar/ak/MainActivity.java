@@ -16,6 +16,7 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.net.http.SslError;
+import android.webkit.CookieManager;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -31,6 +32,7 @@ import android.widget.Toast;
 import android.os.PowerManager;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URL;
@@ -103,12 +105,45 @@ public class MainActivity extends Activity {
         if (list.isEmpty()) {
             list.add("https://ak.rincynar.top");
             list.add("https://ak.s.rincynar.top");
+            list.add("https://stronghold-protocol.rincynar.top");
             list.add("https://ak.1.rincynar.top");
             list.add("https://ak.2.rincynar.top");
             list.add("https://ak.3.rincynar.top");
             list.add("https://ak.4.rincynar.top");
+            list.add("https://stronghold-protocol-zmmq.onrender.com");
         }
         return list;
+    }
+
+    private void probeCandidate(final ServerCandidate candidate) {
+        if (candidate.url == null || candidate.url.isEmpty()) return;
+        HttpURLConnection conn = null;
+        try {
+            long t0 = System.currentTimeMillis();
+            URL u = new URL(candidate.url);
+            conn = (HttpURLConnection) u.openConnection();
+            conn.setRequestMethod("HEAD");
+            conn.setConnectTimeout(2500);
+            conn.setReadTimeout(2500);
+            conn.setInstanceFollowRedirects(true);
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36");
+            int code = conn.getResponseCode();
+            long elapsed = System.currentTimeMillis() - t0;
+            if ((code >= 200 && code < 400) || code == 405) {
+                candidate.reachable = true;
+                candidate.latencyMs = elapsed;
+            } else {
+                candidate.reachable = false;
+                candidate.latencyMs = Long.MAX_VALUE;
+            }
+        } catch (Throwable t) {
+            candidate.reachable = false;
+            candidate.latencyMs = Long.MAX_VALUE;
+        } finally {
+            if (conn != null) {
+                try { conn.disconnect(); } catch (Throwable ignored) {}
+            }
+        }
     }
 
     private void startServerPingAndConnect() {
@@ -126,9 +161,47 @@ public class MainActivity extends Activity {
             candidates.add(new ServerCandidate(rawUrls.get(i), i));
         }
 
-        sortedCandidates = candidates;
-        currentCandidateIndex = 0;
-        tryConnectCandidate(0);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                int poolSize = Math.min(6, candidates.size());
+                ExecutorService pool = Executors.newFixedThreadPool(poolSize);
+                final CountDownLatch latch = new CountDownLatch(candidates.size());
+
+                for (final ServerCandidate c : candidates) {
+                    pool.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                probeCandidate(c);
+                            } finally {
+                                latch.countDown();
+                            }
+                        }
+                    });
+                }
+
+                try {
+                    latch.await(2500, TimeUnit.MILLISECONDS);
+                } catch (Throwable ignored) {}
+
+                pool.shutdownNow();
+
+                Collections.sort(candidates);
+
+                mainHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (isFinishing() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && isDestroyed())) {
+                            return;
+                        }
+                        sortedCandidates = candidates;
+                        currentCandidateIndex = 0;
+                        tryConnectCandidate(0);
+                    }
+                });
+            }
+        }).start();
     }
 
     private void tryConnectCandidate(int index) {
@@ -301,6 +374,14 @@ public class MainActivity extends Activity {
 
         setupWebSettings();
 
+        try {
+            CookieManager cm = CookieManager.getInstance();
+            cm.setAcceptCookie(true);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                cm.setAcceptThirdPartyCookies(webView, true);
+            }
+        } catch (Throwable ignored) {}
+
         webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         webView.setBackgroundColor(0xFF0C0F0E);
 
@@ -360,6 +441,19 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                if (failingUrl == null || currentActiveUrl == null) return;
+                try {
+                    Uri uri = Uri.parse(failingUrl);
+                    Uri activeUri = Uri.parse(currentActiveUrl);
+                    if (uri.getHost() != null && activeUri.getHost() != null
+                            && uri.getHost().equalsIgnoreCase(activeUri.getHost())) {
+                        failoverToNextCandidate("主页面网络加载失败 (" + errorCode + ")");
+                    }
+                } catch (Throwable ignored) {}
+            }
+
+            @Override
             public void onReceivedHttpError(WebView view, WebResourceRequest request,
                     WebResourceResponse errorResponse) {
                 if (request == null || !request.isForMainFrame()) return;
@@ -401,21 +495,40 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean isInternalUrl(String url) {
+        if (url == null || url.isEmpty()) return false;
+        try {
+            Uri uri = Uri.parse(url);
+            String host = uri.getHost();
+            if (host == null) return false;
+            String h = host.toLowerCase();
+            if (h.endsWith("rincynar.top") || h.endsWith("onrender.com") || h.equals("retry.local")) {
+                return true;
+            }
+            if (sortedCandidates != null) {
+                for (ServerCandidate c : sortedCandidates) {
+                    if (c.host != null && !c.host.isEmpty() && h.equalsIgnoreCase(c.host)) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
     private boolean handleUrlOverride(String url) {
         if (url == null || url.isEmpty()) return false;
         if (url.startsWith("https://retry.local") || url.startsWith("http://retry.local")) {
             startServerPingAndConnect();
             return true;
         }
-        Uri uri = Uri.parse(url);
-        String host = uri.getHost();
-        if (host != null && host.toLowerCase().endsWith("rincynar.top")) {
+        if (isInternalUrl(url)) {
             return false;
         }
         // Only open external http/https web links in the system browser
         if (url.startsWith("http://") || url.startsWith("https://")) {
             try {
-                Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
                 startActivity(intent);
                 return true;
             } catch (Throwable ignored) {}
