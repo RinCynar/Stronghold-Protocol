@@ -93,22 +93,20 @@ public class MainActivity extends Activity {
     private List<String> getServerCandidates() {
         List<String> list = new ArrayList<>();
         try {
-            String[] arr = getResources().getStringArray(R.array.server_candidates);
-            if (arr != null) {
-                for (String s : arr) {
-                    if (s != null && !s.trim().isEmpty() && !list.contains(s.trim())) {
-                        list.add(s.trim());
+            int resId = getResources().getIdentifier("server_candidates", "array", getPackageName());
+            if (resId != 0) {
+                String[] arr = getResources().getStringArray(resId);
+                if (arr != null) {
+                    for (String s : arr) {
+                        if (s != null && !s.trim().isEmpty() && !list.contains(s.trim())) {
+                            list.add(s.trim());
+                        }
                     }
                 }
             }
         } catch (Throwable ignored) {}
         if (list.isEmpty()) {
             list.add("https://ak.rincynar.top");
-            list.add("https://ak.s.rincynar.top");
-            list.add("https://ak.1.rincynar.top");
-            list.add("https://ak.2.rincynar.top");
-            list.add("https://ak.3.rincynar.top");
-            list.add("https://ak.4.rincynar.top");
         }
         return list;
     }
@@ -345,7 +343,7 @@ public class MainActivity extends Activity {
         if (currentActiveUrl != null) return currentActiveUrl;
         List<String> list = getServerCandidates();
         if (!list.isEmpty()) return list.get(0);
-        return "https://ak.s.rincynar.top";
+        return "https://ak.rincynar.top";
     }
 
     private void setupCrashHandler() {

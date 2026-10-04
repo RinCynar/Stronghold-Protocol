@@ -27,8 +27,8 @@ jobs:
               --title "Stronghold Protocol $TAG" \
               --notes "### 卫戍协议：盟约 (Stronghold Protocol) - Android APK 发布
 
-- 🎮 **在线直接游玩（网页版）**：[https://ak.s.rincynar.top](https://ak.s.rincynar.top)
-- 🌐 **后端服务**：自建 Render 独立服务（通过 Cloudflare Workers 全球 CDN 边缘加速）
+- 🎮 **在线直接游玩（网页版）**：[https://ak.rincynar.top](https://ak.rincynar.top)
+- 🌐 **服务网络**：Cloudflare 全球边缘加速
 - 📱 **Android 客户端**：
   - 沉浸式横屏全屏显示，消除手机浏览器导航栏与状态栏遮挡
   - Android 8.0+ 自适应图标规范 (Adaptive Icons)

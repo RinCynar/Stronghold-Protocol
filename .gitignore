@@ -29,7 +29,9 @@ desktop.ini
 .vscode/
 .claude/
 
-# --- Android build artifacts ---
+# --- Android build artifacts & private config ---
 android/build/
 android/*.apk
 *.idsig
+android/src/main/res/values/servers.xml
+**/servers.xml

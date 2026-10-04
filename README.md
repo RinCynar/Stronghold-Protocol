@@ -9,7 +9,7 @@
 > 🎮 **在线直接游玩（网页版）**：[https://ak.rincynar.top](https://ak.rincynar.top)  
 > 📱 **Android 手机客户端**：[下载最新 APK (GitHub Releases)](../../releases/latest)  
 > 
-> 💡 **说明**：本项目后端采用自建实例（部署于 Render，并通过 Cloudflare Workers 提供全球边缘 CDN 缓存与 WebSocket 实时穿透；原社区源站 `game.starst.site` 因流量压力停止运营已下线）；针对手机浏览器上下导航栏遮挡游戏视野的问题，制作了沉浸式全屏横屏的 Android APK 客户端（源码见 [`android/`](android/)，大小仅约 41 KB，支持静态资源离线持久化缓存与后台防掉线保活）。
+> 💡 **说明**：本项目提供全球边缘 CDN 缓存与 WebSocket 实时穿透；针对手机浏览器上下导航栏遮挡游戏视野的问题，制作了沉浸式全屏横屏的 Android APK 客户端（源码见 [`android/`](android/)，大小仅约 41 KB，支持后台防掉线保活）。
 
 ## 声明
 
