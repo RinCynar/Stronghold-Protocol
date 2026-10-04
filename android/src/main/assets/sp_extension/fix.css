@@ -6,3 +6,29 @@ html {
 .result__main {
   padding-top: clamp(0.12rem, 2vh, 0.36rem) !important;
 }
+
+/* 屏蔽网页全屏按钮，避免在 Android 原生沉浸横屏全屏客户端中误触导致 DOM 全屏布局异常 */
+.fsbtn,
+.title-fs,
+.gm__fs,
+button.fsbtn,
+.sp-standalone .fsbtn,
+[aria-label="全屏"],
+[aria-label="退出全屏"],
+[title="全屏"],
+[title="退出全屏"] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  position: absolute !important;
+  top: -9999px !important;
+  left: -9999px !important;
+}

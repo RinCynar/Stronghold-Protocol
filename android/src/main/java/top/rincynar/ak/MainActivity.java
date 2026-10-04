@@ -331,10 +331,21 @@ public class MainActivity extends Activity {
 
         GeckoSessionSettings sessionSettings = new GeckoSessionSettings.Builder()
             .usePrivateMode(false)
+            .displayMode(GeckoSessionSettings.DISPLAY_MODE_FULLSCREEN)
             .build();
         geckoSession = new GeckoSession(sessionSettings);
 
-        geckoSession.setContentDelegate(new GeckoSession.ContentDelegate() {});
+        geckoSession.setContentDelegate(new GeckoSession.ContentDelegate() {
+            @Override
+            public void onFullScreen(GeckoSession session, boolean fullScreen) {
+                // Intercept and prevent DOM element fullscreen to avoid viewport desync
+                if (fullScreen && session != null) {
+                    try {
+                        session.exitFullScreen();
+                    } catch (Throwable ignored) {}
+                }
+            }
+        });
 
         geckoSession.setProgressDelegate(new GeckoSession.ProgressDelegate() {
             @Override
