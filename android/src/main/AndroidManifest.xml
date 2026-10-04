@@ -41,6 +41,15 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="top.rincynar.ak.androidx-startup"
+            android:exported="false">
+            <meta-data
+                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+                android:value="androidx.startup" />
+        </provider>
+
         <service android:name="org.mozilla.gecko.process.GeckoChildProcessServices$tab0" android:process=":tab0" android:exported="false" android:isolatedProcess="false" />
         <service android:name="org.mozilla.gecko.process.GeckoChildProcessServices$tab1" android:process=":tab1" android:exported="false" android:isolatedProcess="false" />
         <service android:name="org.mozilla.gecko.process.GeckoChildProcessServices$tab2" android:process=":tab2" android:exported="false" android:isolatedProcess="false" />

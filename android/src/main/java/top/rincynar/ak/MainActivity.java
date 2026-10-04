@@ -285,15 +285,34 @@ public class MainActivity extends Activity {
             settings.setTrustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_FIRST);
             settings.setTrustedRecursiveResolverUri("https://dns.alidns.com/dns-query");
 
-            sRuntime = GeckoRuntime.create(this, settings);
-
             try {
-                // Register built-in extension for mobile responsive CSS layout adjustments
-                sRuntime.getWebExtensionController().ensureBuiltIn(
-                    "resource://android/assets/sp_extension/",
-                    "sp-layout-fix@rincynar.top"
-                );
-            } catch (Throwable ignored) {}
+                sRuntime = GeckoRuntime.create(getApplicationContext(), settings);
+            } catch (IllegalStateException e) {
+                // If GeckoRuntime was already initialized in this process, retrieve it via reflection
+                try {
+                    java.lang.reflect.Field field = GeckoRuntime.class.getDeclaredField("sRuntime");
+                    field.setAccessible(true);
+                    sRuntime = (GeckoRuntime) field.get(null);
+                    if (sRuntime != null) {
+                        try {
+                            sRuntime.getSettings().setTrustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_FIRST);
+                            sRuntime.getSettings().setTrustedRecursiveResolverUri("https://dns.alidns.com/dns-query");
+                        } catch (Throwable ignored) {}
+                    }
+                } catch (Throwable reflectionEx) {
+                    throw e;
+                }
+            }
+
+            if (sRuntime != null) {
+                try {
+                    // Register built-in extension for mobile responsive CSS layout adjustments
+                    sRuntime.getWebExtensionController().ensureBuiltIn(
+                        "resource://android/assets/sp_extension/",
+                        "sp-layout-fix@rincynar.top"
+                    );
+                } catch (Throwable ignored) {}
+            }
         }
 
         GeckoSessionSettings sessionSettings = new GeckoSessionSettings.Builder()
@@ -437,6 +456,7 @@ public class MainActivity extends Activity {
                 @Override
                 public void onClick(DialogInterface dialog, int which) {
                     finish();
+                    android.os.Process.killProcess(android.os.Process.myPid());
                 }
             })
             .show();
@@ -459,12 +479,14 @@ public class MainActivity extends Activity {
                         startActivity(intent);
                     } catch (Throwable ignored) {}
                     finish();
+                    android.os.Process.killProcess(android.os.Process.myPid());
                 }
             })
             .setNegativeButton("退出", new DialogInterface.OnClickListener() {
                 @Override
                 public void onClick(DialogInterface dialog, int which) {
                     finish();
+                    android.os.Process.killProcess(android.os.Process.myPid());
                 }
             })
             .show();

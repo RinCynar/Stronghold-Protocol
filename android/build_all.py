@@ -29,6 +29,10 @@ def main():
     androidx_annotation = os.path.join(libs_dir, "annotation-1.6.0.jar")
     androidx_collection = os.path.join(libs_dir, "collection-1.2.0.jar")
     androidx_lifecycle = os.path.join(libs_dir, "lifecycle-common-2.6.2.jar")
+    androidx_lifecycle_process = os.path.join(libs_dir, "lifecycle-process.jar")
+    androidx_lifecycle_runtime = os.path.join(libs_dir, "lifecycle-runtime.jar")
+    androidx_startup_runtime = os.path.join(libs_dir, "startup-runtime.jar")
+    kotlin_stdlib = os.path.join(libs_dir, "kotlin-stdlib.jar")
 
     # Auto-download missing libraries
     os.makedirs(libs_dir, exist_ok=True)
@@ -36,13 +40,25 @@ def main():
         (aar_path, "https://maven.mozilla.org/maven2/org/mozilla/geckoview/geckoview-arm64-v8a/128.0.20240725162350/geckoview-arm64-v8a-128.0.20240725162350.aar", "GeckoView 128 AAR"),
         (androidx_annotation, "https://dl.google.com/dl/android/maven2/androidx/annotation/annotation/1.6.0/annotation-1.6.0.jar", "androidx.annotation"),
         (androidx_collection, "https://dl.google.com/dl/android/maven2/androidx/collection/collection/1.2.0/collection-1.2.0.jar", "androidx.collection"),
-        (androidx_lifecycle, "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-common/2.6.2/lifecycle-common-2.6.2.jar", "androidx.lifecycle")
+        (androidx_lifecycle, "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-common/2.6.2/lifecycle-common-2.6.2.jar", "androidx.lifecycle"),
+        (androidx_lifecycle_process, "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-process/2.6.2/lifecycle-process-2.6.2.aar", "androidx.lifecycle-process"),
+        (androidx_lifecycle_runtime, "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-runtime/2.6.2/lifecycle-runtime-2.6.2.aar", "androidx.lifecycle-runtime"),
+        (androidx_startup_runtime, "https://dl.google.com/dl/android/maven2/androidx/startup/startup-runtime/1.1.1/startup-runtime-1.1.1.aar", "androidx.startup-runtime"),
+        (kotlin_stdlib, "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/1.8.22/kotlin-stdlib-1.8.22.jar", "kotlin-stdlib")
     ]
     for path, url, label in required_downloads:
         if not os.path.exists(path):
             print(f"    Downloading {label}...")
             import urllib.request
-            urllib.request.urlretrieve(url, path)
+            tmp_dl = path + ".tmp"
+            urllib.request.urlretrieve(url, tmp_dl)
+            if url.endswith(".aar"):
+                with zipfile.ZipFile(tmp_dl) as z:
+                    with open(path, "wb") as f_out:
+                        f_out.write(z.read("classes.jar"))
+                os.remove(tmp_dl)
+            else:
+                os.rename(tmp_dl, path)
 
     build_dir = os.path.join(script_dir, "build")
     gen_dir = os.path.join(build_dir, "gen")
@@ -104,7 +120,11 @@ def main():
         gecko_classes_jar,
         androidx_annotation,
         androidx_collection,
-        androidx_lifecycle
+        androidx_lifecycle,
+        androidx_lifecycle_process,
+        androidx_lifecycle_runtime,
+        androidx_startup_runtime,
+        kotlin_stdlib
     ])
 
     subprocess.check_call([
@@ -125,7 +145,11 @@ def main():
         gecko_classes_jar,
         androidx_annotation,
         androidx_collection,
-        androidx_lifecycle
+        androidx_lifecycle,
+        androidx_lifecycle_process,
+        androidx_lifecycle_runtime,
+        androidx_startup_runtime,
+        kotlin_stdlib
     ]
 
     subprocess.check_call([
