@@ -84,7 +84,7 @@ public class MainActivity extends Activity {
     private String currentActiveUrl = null;
     private List<ServerCandidate> sortedCandidates = new ArrayList<>();
     private int currentCandidateIndex = 0;
-    private boolean isPinging = false;
+    private int lastFailedCandidateIndex = -1;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private Runnable loadTimeoutRunnable = null;
 
@@ -112,9 +112,8 @@ public class MainActivity extends Activity {
     }
 
     private void startServerPingAndConnect() {
-        if (isPinging) return;
-        isPinging = true;
         cancelLoadTimeout();
+        lastFailedCandidateIndex = -1;
 
         if (progressBar != null) {
             progressBar.setVisibility(View.VISIBLE);
@@ -127,78 +126,9 @@ public class MainActivity extends Activity {
             candidates.add(new ServerCandidate(rawUrls.get(i), i));
         }
 
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                ExecutorService pool = Executors.newFixedThreadPool(candidates.size());
-                final CountDownLatch latch = new CountDownLatch(candidates.size());
-
-                for (final ServerCandidate c : candidates) {
-                    pool.submit(new Runnable() {
-                        @Override
-                        public void run() {
-                            try {
-                                pingCandidate(c);
-                            } finally {
-                                latch.countDown();
-                            }
-                        }
-                    });
-                }
-
-                try {
-                    latch.await(5, TimeUnit.SECONDS);
-                } catch (InterruptedException ignored) {}
-                pool.shutdownNow();
-
-                final List<ServerCandidate> reachable = new ArrayList<>();
-                for (ServerCandidate c : candidates) {
-                    if (c.reachable) {
-                        reachable.add(c);
-                    }
-                }
-                Collections.sort(reachable);
-
-                mainHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        isPinging = false;
-                        if (isFinishing() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && isDestroyed())) {
-                            return;
-                        }
-
-                        if (reachable.isEmpty()) {
-                            for (ServerCandidate c : candidates) {
-                                reachable.add(c);
-                            }
-                        }
-
-                        sortedCandidates = reachable;
-                        tryConnectCandidate(0);
-                    }
-                });
-            }
-        }).start();
-    }
-
-    private void pingCandidate(ServerCandidate candidate) {
-        if (candidate.host.isEmpty()) return;
-        Socket socket = null;
-        try {
-            long t0 = System.currentTimeMillis();
-            socket = new Socket();
-            socket.connect(new InetSocketAddress(candidate.host, 443), 3500);
-            long elapsed = System.currentTimeMillis() - t0;
-            candidate.latencyMs = elapsed;
-            candidate.reachable = true;
-        } catch (Throwable t) {
-            candidate.reachable = false;
-            candidate.latencyMs = Long.MAX_VALUE;
-        } finally {
-            if (socket != null) {
-                try { socket.close(); } catch (Throwable ignored) {}
-            }
-        }
+        sortedCandidates = candidates;
+        currentCandidateIndex = 0;
+        tryConnectCandidate(0);
     }
 
     private void tryConnectCandidate(int index) {
@@ -231,10 +161,25 @@ public class MainActivity extends Activity {
                 if (isFinishing() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && isDestroyed())) {
                     return;
                 }
-                tryConnectCandidate(currentCandidateIndex + 1);
+                failoverToNextCandidate("连接超时");
             }
         };
-        mainHandler.postDelayed(loadTimeoutRunnable, 25000);
+        mainHandler.postDelayed(loadTimeoutRunnable, 15000);
+    }
+
+    private void failoverToNextCandidate(String reason) {
+        cancelLoadTimeout();
+        if (currentCandidateIndex == lastFailedCandidateIndex) {
+            return; // Already failed over for this candidate
+        }
+        lastFailedCandidateIndex = currentCandidateIndex;
+        final int nextIndex = currentCandidateIndex + 1;
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                tryConnectCandidate(nextIndex);
+            }
+        });
     }
 
     private void cancelLoadTimeout() {
@@ -400,47 +345,34 @@ public class MainActivity extends Activity {
             }
 
             @Override
-            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-                // Support older Android/WebView versions
-                cancelLoadTimeout();
-                final int nextIndex = currentCandidateIndex + 1;
-                mainHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        tryConnectCandidate(nextIndex);
-                    }
-                });
-            }
-
-            @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (request == null || !request.isForMainFrame()) return;
-                // Any network failure on the main frame (ERR_CONNECTION_RESET, ERR_CONNECT, ERR_TIMEOUT, etc.)
-                // MUST trigger immediate seamless failover to the next candidate node!
-                cancelLoadTimeout();
-                final int nextIndex = currentCandidateIndex + 1;
-                mainHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        tryConnectCandidate(nextIndex);
-                    }
-                });
+                Uri uri = request.getUrl();
+                if (uri == null) return;
+                String host = uri.getHost();
+                if (host == null || currentActiveUrl == null) return;
+                Uri activeUri = Uri.parse(currentActiveUrl);
+                if (activeUri.getHost() != null && !host.equalsIgnoreCase(activeUri.getHost())) {
+                    // Ignore errors from previously cancelled navigations or subresources
+                    return;
+                }
+                failoverToNextCandidate("主页面网络加载失败");
             }
 
             @Override
             public void onReceivedHttpError(WebView view, WebResourceRequest request,
                     WebResourceResponse errorResponse) {
                 if (request == null || !request.isForMainFrame()) return;
-                // Failover if server returns HTTP error status (4xx or 5xx) on main document
+                Uri uri = request.getUrl();
+                if (uri == null) return;
+                String host = uri.getHost();
+                if (host == null || currentActiveUrl == null) return;
+                Uri activeUri = Uri.parse(currentActiveUrl);
+                if (activeUri.getHost() != null && !host.equalsIgnoreCase(activeUri.getHost())) {
+                    return;
+                }
                 if (errorResponse != null && errorResponse.getStatusCode() >= 400) {
-                    cancelLoadTimeout();
-                    final int nextIndex = currentCandidateIndex + 1;
-                    mainHandler.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            tryConnectCandidate(nextIndex);
-                        }
-                    });
+                    failoverToNextCandidate("HTTP " + errorResponse.getStatusCode());
                 }
             }
         });
@@ -539,12 +471,13 @@ public class MainActivity extends Activity {
         ws.setMinimumLogicalFontSize(1);
         ws.setJavaScriptCanOpenWindowsAutomatically(true);
         ws.setCacheMode(WebSettings.LOAD_DEFAULT);
-        // Mimic Chrome for Android to pass Cloudflare browser integrity checks.
-        // The default Android WebView UA can differ in TLS fingerprint / headers
-        // and get flagged by Cloudflare Bot Management.
-        ws.setUserAgentString(
-            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
-            + "(KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36");
+        // Clean default user agent: strip "; wv" and "Version/4.0 " so Cloudflare recognizes it as genuine mobile Chrome
+        try {
+            String defaultUa = ws.getUserAgentString();
+            if (defaultUa != null) {
+                ws.setUserAgentString(defaultUa.replace("; wv", "").replace("Version/4.0 ", ""));
+            }
+        } catch (Throwable ignored) {}
 
         try {
             ws.setDatabaseEnabled(true);
