@@ -24,17 +24,51 @@ def main():
     javac = os.path.join(jdk_bin, "javac.exe")
     keystore = os.path.join(script_dir, "release.keystore")
 
+    libs_dir = os.path.join(script_dir, "libs")
+    aar_path = os.path.join(libs_dir, "geckoview-128.aar")
+    androidx_annotation = os.path.join(libs_dir, "annotation-1.6.0.jar")
+    androidx_collection = os.path.join(libs_dir, "collection-1.2.0.jar")
+    androidx_lifecycle = os.path.join(libs_dir, "lifecycle-common-2.6.2.jar")
+
+    # Auto-download missing libraries
+    os.makedirs(libs_dir, exist_ok=True)
+    required_downloads = [
+        (aar_path, "https://maven.mozilla.org/maven2/org/mozilla/geckoview/geckoview-arm64-v8a/128.0.20240725162350/geckoview-arm64-v8a-128.0.20240725162350.aar", "GeckoView 128 AAR"),
+        (androidx_annotation, "https://dl.google.com/dl/android/maven2/androidx/annotation/annotation/1.6.0/annotation-1.6.0.jar", "androidx.annotation"),
+        (androidx_collection, "https://dl.google.com/dl/android/maven2/androidx/collection/collection/1.2.0/collection-1.2.0.jar", "androidx.collection"),
+        (androidx_lifecycle, "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-common/2.6.2/lifecycle-common-2.6.2.jar", "androidx.lifecycle")
+    ]
+    for path, url, label in required_downloads:
+        if not os.path.exists(path):
+            print(f"    Downloading {label}...")
+            import urllib.request
+            urllib.request.urlretrieve(url, path)
+
     build_dir = os.path.join(script_dir, "build")
     gen_dir = os.path.join(build_dir, "gen")
     classes_dir = os.path.join(build_dir, "classes")
     dex_dir = os.path.join(build_dir, "dex")
+    aar_extracted_dir = os.path.join(build_dir, "aar_extracted")
     public_dir = os.path.join(project_root, "public")
 
-    print("==> 1. Preparing build directories...")
+    print("==> 1. Preparing build directories and extracting GeckoView engine...")
     if os.path.exists(build_dir):
-        shutil.rmtree(build_dir)
-    for d in [gen_dir, classes_dir, dex_dir]:
+        # Keep aar_extracted if it exists to speed up rebuilds
+        for item in os.listdir(build_dir):
+            if item != "aar_extracted":
+                p = os.path.join(build_dir, item)
+                if os.path.isdir(p):
+                    shutil.rmtree(p)
+                else:
+                    os.remove(p)
+    for d in [gen_dir, classes_dir, dex_dir, aar_extracted_dir]:
         os.makedirs(d, exist_ok=True)
+
+    gecko_classes_jar = os.path.join(aar_extracted_dir, "classes.jar")
+    if not os.path.exists(gecko_classes_jar):
+        print("    Extracting GeckoView AAR components...")
+        with zipfile.ZipFile(aar_path, "r") as z:
+            z.extractall(aar_extracted_dir)
 
     print("==> 2. Compiling base resources with aapt2...")
     compiled_res = os.path.join(build_dir, "compiled_res.zip")
@@ -65,10 +99,18 @@ def main():
             if f.endswith(".java"):
                 java_files.append(os.path.join(root, f))
 
+    javac_cp = os.pathsep.join([
+        platform_jar,
+        gecko_classes_jar,
+        androidx_annotation,
+        androidx_collection,
+        androidx_lifecycle
+    ])
+
     subprocess.check_call([
         javac, "-encoding", "UTF-8",
         "-source", "8", "-target", "8",
-        "-cp", platform_jar,
+        "-cp", javac_cp,
         "-d", classes_dir
     ] + java_files)
 
@@ -79,15 +121,20 @@ def main():
             if f.endswith(".class"):
                 class_files.append(os.path.join(root, f))
 
+    d8_inputs = class_files + [
+        gecko_classes_jar,
+        androidx_annotation,
+        androidx_collection,
+        androidx_lifecycle
+    ]
+
     subprocess.check_call([
         d8, "--release", "--min-api", "21",
         "--lib", platform_jar,
         "--output", dex_dir
-    ] + class_files)
+    ] + d8_inputs)
 
-    classes_dex = os.path.join(dex_dir, "classes.dex")
-
-    print("==> 6. Packaging and signing Stronghold-Protocol.apk...")
+    print("==> 6. Packaging and signing Stronghold-Protocol.apk (GeckoView + ECH)...")
     raw_apk = os.path.join(build_dir, "raw.apk")
     aligned_apk = os.path.join(build_dir, "aligned.apk")
     final_apk_android = os.path.join(script_dir, "Stronghold-Protocol.apk")
@@ -95,14 +142,38 @@ def main():
 
     shutil.copyfile(base_rc_apk, raw_apk)
 
-    # Append classes.dex
+    # Append DEX, assets, and native libraries
     with zipfile.ZipFile(raw_apk, "a", compression=zipfile.ZIP_DEFLATED) as z:
-        z.write(classes_dex, "classes.dex")
+        # 1. Add all DEX files
+        for f in os.listdir(dex_dir):
+            if f.endswith(".dex"):
+                z.write(os.path.join(dex_dir, f), f)
 
-    # Zipalign
+        # 2. Add GeckoView omni.ja asset
+        omni_ja = os.path.join(aar_extracted_dir, "assets", "omni.ja")
+        if os.path.exists(omni_ja):
+            z.write(omni_ja, "assets/omni.ja")
+
+        # 3. Add project assets (e.g. extension files)
+        app_assets = os.path.join(script_dir, "src", "main", "assets")
+        if os.path.exists(app_assets):
+            for root, _, files in os.walk(app_assets):
+                for f in files:
+                    full_p = os.path.join(root, f)
+                    rel_p = os.path.relpath(full_p, app_assets).replace("\\", "/")
+                    z.write(full_p, f"assets/{rel_p}")
+
+        # 4. Add GeckoView native libraries (.so)
+        jni_dir = os.path.join(aar_extracted_dir, "jni", "arm64-v8a")
+        if os.path.exists(jni_dir):
+            for f in os.listdir(jni_dir):
+                if f.endswith(".so"):
+                    z.write(os.path.join(jni_dir, f), f"lib/arm64-v8a/{f}")
+
+    print("==> 7. Aligning APK with zipalign...")
     subprocess.check_call([zipalign, "-p", "-f", "4", raw_apk, aligned_apk])
 
-    # Apksigner
+    print("==> 8. Signing APK with apksigner...")
     subprocess.check_call([
         apksigner, "sign",
         "--ks", keystore,
@@ -143,7 +214,7 @@ def main():
     print(f"\n=======================================================")
     print(f"APK BUILT AND SIGNED SUCCESSFULLY in {total_time:.1f}s!")
     print(f"=======================================================")
-    print(f" - Stronghold-Protocol.apk             {size_str:>10}  | 官方客户端 (包名 top.rincynar.ak, 自动节点轮询)")
+    print(f" - Stronghold-Protocol.apk             {size_str:>10}  | 独立现代浏览器内核客户端 (GeckoView + ECH, 免疫 GFW TCP RST)")
     print("=======================================================\n")
 
 if __name__ == "__main__":

@@ -1,0 +1,12 @@
+{
+  "manifest_version": 2,
+  "name": "StrongholdLayoutFix",
+  "version": "1.0",
+  "content_scripts": [
+    {
+      "matches": ["*://*.rincynar.top/*"],
+      "css": ["fix.css"],
+      "run_at": "document_start"
+    }
+  ]
+}

@@ -29,12 +29,12 @@ jobs:
 
 - 🎮 **在线直接游玩（网页版）**：[https://ak.rincynar.top](https://ak.rincynar.top)
 - 🌐 **服务网络**：Cloudflare 全球边缘加速
-- 📱 **Android 客户端**：
-  - 沉浸式横屏全屏显示，消除手机浏览器导航栏与状态栏遮挡
-  - Android 8.0+ 自适应图标规范 (Adaptive Icons)
-  - 中英文系统自适应 (Stronghold Protocol / 卫戍协议：盟约)
-  - 保持屏幕常亮、前台服务保活防掉线
-  - 静态资源本地磁盘零延迟离线持久化缓存
-  - 启动时自动轮询候选服务器节点，无可用节点时优雅降级为重试页" \
+- 📱 **Android 客户端 (v1.0.8)**：
+  - 🚀 嵌入独立现代浏览器内核 (GeckoView)，彻底摆脱系统自带精简/老旧 WebView 限制
+  - 🔒 完整支持 Encrypted Client Hello (ECH) 与 DNS-over-HTTPS (DoH)，外层 SNI 彻底加密，直连免疫 GFW TCP RST 阻断
+  - 🔄 多候选服务器节点自动轮询与毫秒级无缝故障转移
+  - 🎨 内置移动端响应式布局自适应插件 (WebExtension)
+  - 🎮 沉浸式横屏全屏显示，消除状态栏遮挡，保持屏幕常亮、前台服务保活防掉线
+  - 🛡️ 安全合规脱敏：节点配置本地化隔离，对外仅暴露标准域名" \
               || gh release upload "$TAG" Stronghold-Protocol.apk --clobber
           fi

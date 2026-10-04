@@ -4,87 +4,66 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
-import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
-import android.net.http.SslError;
-import android.webkit.CookieManager;
-import android.webkit.SslErrorHandler;
-import android.webkit.WebChromeClient;
-import android.webkit.WebResourceError;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebResourceResponse;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
-import android.os.PowerManager;
+import org.mozilla.geckoview.AllowOrDeny;
+import org.mozilla.geckoview.GeckoResult;
+import org.mozilla.geckoview.GeckoRuntime;
+import org.mozilla.geckoview.GeckoRuntimeSettings;
+import org.mozilla.geckoview.GeckoSession;
+import org.mozilla.geckoview.GeckoSessionSettings;
+import org.mozilla.geckoview.GeckoView;
+import org.mozilla.geckoview.WebRequestError;
+
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.net.HttpURLConnection;
-import java.net.InetSocketAddress;
-import java.net.Socket;
-import java.net.URL;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends Activity {
-    private FrameLayout rootContainer;
-    private WebView webView;
-    private ProgressBar progressBar;
-    private long backPressedTime = 0;
-    private PowerManager.WakeLock wakeLock;
 
-    private static class ServerCandidate implements Comparable<ServerCandidate> {
+    private static class ServerCandidate {
         final String url;
         final String host;
         final int priority;
-        long latencyMs = Long.MAX_VALUE;
-        boolean reachable = false;
 
         ServerCandidate(String url, int priority) {
             this.url = url;
             this.priority = priority;
             String h = "";
             try {
-                Uri uri = Uri.parse(url);
-                h = uri.getHost();
+                Uri u = Uri.parse(url);
+                h = u.getHost() != null ? u.getHost() : "";
             } catch (Throwable ignored) {}
-            this.host = h != null ? h : "";
-        }
-
-        @Override
-        public int compareTo(ServerCandidate o) {
-            if (this.reachable != o.reachable) {
-                return this.reachable ? -1 : 1;
-            }
-            // If latency difference is significant (> 80ms), pick the faster node
-            if (Math.abs(this.latencyMs - o.latencyMs) > 80) {
-                return Long.compare(this.latencyMs, o.latencyMs);
-            }
-            // Otherwise preserve official priority order from servers.xml
-            return Integer.compare(this.priority, o.priority);
+            this.host = h;
         }
     }
 
+    private static GeckoRuntime sRuntime;
+    private GeckoView geckoView;
+    private GeckoSession geckoSession;
+    private FrameLayout rootContainer;
+    private ProgressBar progressBar;
+
+    private PowerManager.WakeLock wakeLock;
+    private long backPressedTime = 0;
+    private boolean canSessionGoBack = false;
+
     private String currentActiveUrl = null;
-    private List<ServerCandidate> sortedCandidates = new ArrayList<>();
+    private List<ServerCandidate> candidateList = new ArrayList<>();
     private int currentCandidateIndex = 0;
     private int lastFailedCandidateIndex = -1;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -111,38 +90,7 @@ public class MainActivity extends Activity {
         return list;
     }
 
-    private void probeCandidate(final ServerCandidate candidate) {
-        if (candidate.url == null || candidate.url.isEmpty()) return;
-        HttpURLConnection conn = null;
-        try {
-            long t0 = System.currentTimeMillis();
-            URL u = new URL(candidate.url);
-            conn = (HttpURLConnection) u.openConnection();
-            conn.setRequestMethod("HEAD");
-            conn.setConnectTimeout(2500);
-            conn.setReadTimeout(2500);
-            conn.setInstanceFollowRedirects(true);
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36");
-            int code = conn.getResponseCode();
-            long elapsed = System.currentTimeMillis() - t0;
-            if ((code >= 200 && code < 400) || code == 405) {
-                candidate.reachable = true;
-                candidate.latencyMs = elapsed;
-            } else {
-                candidate.reachable = false;
-                candidate.latencyMs = Long.MAX_VALUE;
-            }
-        } catch (Throwable t) {
-            candidate.reachable = false;
-            candidate.latencyMs = Long.MAX_VALUE;
-        } finally {
-            if (conn != null) {
-                try { conn.disconnect(); } catch (Throwable ignored) {}
-            }
-        }
-    }
-
-    private void startServerPingAndConnect() {
+    private void startServerConnect() {
         cancelLoadTimeout();
         lastFailedCandidateIndex = -1;
 
@@ -152,57 +100,18 @@ public class MainActivity extends Activity {
         }
 
         final List<String> rawUrls = getServerCandidates();
-        final List<ServerCandidate> candidates = new ArrayList<>();
+        candidateList = new ArrayList<>();
         for (int i = 0; i < rawUrls.size(); i++) {
-            candidates.add(new ServerCandidate(rawUrls.get(i), i));
+            candidateList.add(new ServerCandidate(rawUrls.get(i), i));
         }
 
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                int poolSize = Math.min(6, candidates.size());
-                ExecutorService pool = Executors.newFixedThreadPool(poolSize);
-                final CountDownLatch latch = new CountDownLatch(candidates.size());
-
-                for (final ServerCandidate c : candidates) {
-                    pool.execute(new Runnable() {
-                        @Override
-                        public void run() {
-                            try {
-                                probeCandidate(c);
-                            } finally {
-                                latch.countDown();
-                            }
-                        }
-                    });
-                }
-
-                try {
-                    latch.await(2500, TimeUnit.MILLISECONDS);
-                } catch (Throwable ignored) {}
-
-                pool.shutdownNow();
-
-                Collections.sort(candidates);
-
-                mainHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (isFinishing() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && isDestroyed())) {
-                            return;
-                        }
-                        sortedCandidates = candidates;
-                        currentCandidateIndex = 0;
-                        tryConnectCandidate(0);
-                    }
-                });
-            }
-        }).start();
+        currentCandidateIndex = 0;
+        tryConnectCandidate(0);
     }
 
     private void tryConnectCandidate(int index) {
         cancelLoadTimeout();
-        if (sortedCandidates == null || index >= sortedCandidates.size()) {
+        if (candidateList == null || index >= candidateList.size()) {
             if (progressBar != null) {
                 progressBar.setIndeterminate(false);
                 progressBar.setVisibility(View.GONE);
@@ -212,7 +121,7 @@ public class MainActivity extends Activity {
         }
 
         currentCandidateIndex = index;
-        final ServerCandidate target = sortedCandidates.get(index);
+        final ServerCandidate target = candidateList.get(index);
         currentActiveUrl = target.url;
 
         if (progressBar != null) {
@@ -220,8 +129,8 @@ public class MainActivity extends Activity {
             progressBar.setIndeterminate(true);
         }
 
-        if (webView != null) {
-            webView.loadUrl(target.url);
+        if (geckoSession != null) {
+            geckoSession.loadUri(target.url);
         }
 
         loadTimeoutRunnable = new Runnable() {
@@ -260,7 +169,7 @@ public class MainActivity extends Activity {
 
     private void showUnavailableView() {
         cancelLoadTimeout();
-        if (webView == null) return;
+        if (geckoSession == null) return;
         final String html = "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"/>"
             + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/>"
             + "<title>服务暂时不可用</title><style>"
@@ -279,23 +188,19 @@ public class MainActivity extends Activity {
             + "<a class=\"btn\" href=\"https://retry.local\">重新检测连接</a>"
             + "<div class=\"footer\">STRONGHOLD PROTOCOL · COVENANT</div>"
             + "</body></html>";
-        webView.loadDataWithBaseURL("https://retry.local", html, "text/html", "UTF-8", null);
+        geckoSession.load(new GeckoSession.Loader().data(html, "text/html"));
     }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // Set up global crash handler to prevent silent crash (闪退)
         setupCrashHandler();
-
         super.onCreate(savedInstanceState);
 
         try {
-            // Keep screen on during match
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         } catch (Throwable ignored) {}
 
         try {
-            // Short-edges cutout mode for notch / punch-hole displays (Android 9+)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 WindowManager.LayoutParams lp = getWindow().getAttributes();
                 lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
@@ -304,7 +209,6 @@ public class MainActivity extends Activity {
         } catch (Throwable ignored) {}
 
         try {
-            // Extend window layout behind system bars (status & navigation)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 getWindow().setDecorFitsSystemWindows(false);
             }
@@ -331,11 +235,10 @@ public class MainActivity extends Activity {
 
         hideSystemUI();
 
-        // Dynamically instantiate WebView inside try-catch to detect missing/broken system WebView
         try {
-            initWebView(savedInstanceState);
+            initGeckoView(savedInstanceState);
         } catch (Throwable t) {
-            handleWebViewInitError(t);
+            handleGeckoViewInitError(t);
         }
     }
 
@@ -360,51 +263,58 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void initWebView(Bundle savedInstanceState) {
-        webView = new WebView(this);
+    private void initGeckoView(Bundle savedInstanceState) {
+        geckoView = new GeckoView(this);
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         );
-        rootContainer.addView(webView, 0, params);
+        rootContainer.addView(geckoView, 0, params);
+        geckoView.setBackgroundColor(0xFF0C0F0E);
 
-        setupWebSettings();
+        if (sRuntime == null) {
+            GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
+                .aboutConfigEnabled(false)
+                .consoleOutput(false)
+                .build();
 
-        try {
-            CookieManager cm = CookieManager.getInstance();
-            cm.setAcceptCookie(true);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                cm.setAcceptThirdPartyCookies(webView, true);
-            }
-        } catch (Throwable ignored) {}
+            // Enable TRR (DNS-over-HTTPS) mode 2 (TRR_MODE_FIRST).
+            // In Gecko, DoH queries HTTPS RR which retrieves Cloudflare ECHConfig.
+            // This enables Encrypted Client Hello (ECH) out-of-the-box, completely
+            // bypassing GFW SNI inspection resets on Cloudflare Anycast IPs.
+            settings.setTrustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_FIRST);
+            settings.setTrustedRecursiveResolverUri("https://dns.alidns.com/dns-query");
 
-        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        webView.setBackgroundColor(0xFF0C0F0E);
+            sRuntime = GeckoRuntime.create(this, settings);
 
-        webView.setWebViewClient(new WebViewClient() {
+            try {
+                // Register built-in extension for mobile responsive CSS layout adjustments
+                sRuntime.getWebExtensionController().ensureBuiltIn(
+                    "resource://android/assets/sp_extension/",
+                    "sp-layout-fix@rincynar.top"
+                );
+            } catch (Throwable ignored) {}
+        }
+
+        GeckoSessionSettings sessionSettings = new GeckoSessionSettings.Builder()
+            .usePrivateMode(false)
+            .build();
+        geckoSession = new GeckoSession(sessionSettings);
+
+        geckoSession.setContentDelegate(new GeckoSession.ContentDelegate() {});
+
+        geckoSession.setProgressDelegate(new GeckoSession.ProgressDelegate() {
             @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                return handleUrlOverride(url);
-            }
-
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                if (request == null || request.getUrl() == null) return false;
-                return handleUrlOverride(request.getUrl().toString());
-            }
-
-            @Override
-            public void onPageStarted(WebView view, String url, Bitmap favicon) {
+            public void onPageStart(GeckoSession session, String url) {
                 if (progressBar != null) {
                     progressBar.setVisibility(View.VISIBLE);
                 }
                 hideSystemUI();
-                injectViewportAndLayoutFixes();
             }
 
             @Override
-            public void onPageFinished(WebView view, String url) {
-                if (url != null && !url.startsWith("https://retry.local")) {
+            public void onPageStop(GeckoSession session, boolean success) {
+                if (success) {
                     cancelLoadTimeout();
                 }
                 if (progressBar != null) {
@@ -412,83 +322,72 @@ public class MainActivity extends Activity {
                     progressBar.setVisibility(View.GONE);
                 }
                 hideSystemUI();
-                injectViewportAndLayoutFixes();
             }
 
             @Override
-            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                // Proceed through SSL errors rather than silently aborting the load.
-                handler.proceed();
-            }
-
-            @Override
-            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                if (request == null || !request.isForMainFrame()) return;
-                Uri uri = request.getUrl();
-                if (uri == null) return;
-                String host = uri.getHost();
-                if (host == null || currentActiveUrl == null) return;
-                Uri activeUri = Uri.parse(currentActiveUrl);
-                if (activeUri.getHost() != null && !host.equalsIgnoreCase(activeUri.getHost())) {
-                    // Ignore errors from previously cancelled navigations or subresources
-                    return;
-                }
-                failoverToNextCandidate("主页面网络加载失败");
-            }
-
-            @Override
-            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-                if (failingUrl == null || currentActiveUrl == null) return;
-                try {
-                    Uri uri = Uri.parse(failingUrl);
-                    Uri activeUri = Uri.parse(currentActiveUrl);
-                    if (uri.getHost() != null && activeUri.getHost() != null
-                            && uri.getHost().equalsIgnoreCase(activeUri.getHost())) {
-                        failoverToNextCandidate("主页面网络加载失败 (" + errorCode + ")");
-                    }
-                } catch (Throwable ignored) {}
-            }
-
-            @Override
-            public void onReceivedHttpError(WebView view, WebResourceRequest request,
-                    WebResourceResponse errorResponse) {
-                if (request == null || !request.isForMainFrame()) return;
-                Uri uri = request.getUrl();
-                if (uri == null) return;
-                String host = uri.getHost();
-                if (host == null || currentActiveUrl == null) return;
-                Uri activeUri = Uri.parse(currentActiveUrl);
-                if (activeUri.getHost() != null && !host.equalsIgnoreCase(activeUri.getHost())) {
-                    return;
-                }
-                if (errorResponse != null && errorResponse.getStatusCode() >= 400) {
-                    failoverToNextCandidate("HTTP " + errorResponse.getStatusCode());
-                }
-            }
-        });
-
-        webView.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public void onProgressChanged(WebView view, int newProgress) {
+            public void onProgressChange(GeckoSession session, int progress) {
                 if (progressBar != null) {
-                    progressBar.setProgress(newProgress);
-                    if (newProgress >= 100) {
+                    progressBar.setIndeterminate(false);
+                    progressBar.setProgress(progress);
+                    if (progress >= 100) {
                         progressBar.setVisibility(View.GONE);
                     }
                 }
-                if (newProgress > 30) {
-                    // Page is actively receiving data and rendering, cancel watchdog timeout
+                if (progress > 30) {
                     cancelLoadTimeout();
-                    injectViewportAndLayoutFixes();
                 }
             }
         });
 
-        if (savedInstanceState != null) {
-            webView.restoreState(savedInstanceState);
-        } else {
-            startServerPingAndConnect();
-        }
+        geckoSession.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
+            @Override
+            public void onCanGoBack(GeckoSession session, boolean canGoBack) {
+                canSessionGoBack = canGoBack;
+            }
+
+            @Override
+            public GeckoResult<AllowOrDeny> onLoadRequest(GeckoSession session, LoadRequest request) {
+                if (request == null || request.uri == null) {
+                    return GeckoResult.fromValue(AllowOrDeny.ALLOW);
+                }
+                String url = request.uri;
+                if (url.startsWith("https://retry.local") || url.startsWith("sp://retry")) {
+                    startServerConnect();
+                    return GeckoResult.fromValue(AllowOrDeny.DENY);
+                }
+                if (isInternalUrl(url)) {
+                    return GeckoResult.fromValue(AllowOrDeny.ALLOW);
+                }
+                // External links open in default browser
+                if (url.startsWith("http://") || url.startsWith("https://")) {
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                        startActivity(intent);
+                        return GeckoResult.fromValue(AllowOrDeny.DENY);
+                    } catch (Throwable ignored) {}
+                }
+                return GeckoResult.fromValue(AllowOrDeny.ALLOW);
+            }
+
+            @Override
+            public GeckoResult<String> onLoadError(GeckoSession session, String uri, WebRequestError error) {
+                if (uri == null || currentActiveUrl == null) return null;
+                try {
+                    Uri u = Uri.parse(uri);
+                    Uri active = Uri.parse(currentActiveUrl);
+                    if (u.getHost() != null && active.getHost() != null
+                            && u.getHost().equalsIgnoreCase(active.getHost())) {
+                        failoverToNextCandidate("页面加载失败: " + (error != null ? error.category : "未知"));
+                    }
+                } catch (Throwable ignored) {}
+                return null;
+            }
+        });
+
+        geckoSession.open(sRuntime);
+        geckoView.setSession(geckoSession);
+
+        startServerConnect();
     }
 
     private boolean isInternalUrl(String url) {
@@ -501,8 +400,8 @@ public class MainActivity extends Activity {
             if (h.endsWith("rincynar.top") || h.equals("retry.local")) {
                 return true;
             }
-            if (sortedCandidates != null) {
-                for (ServerCandidate c : sortedCandidates) {
+            if (candidateList != null) {
+                for (ServerCandidate c : candidateList) {
                     if (c.host != null && !c.host.isEmpty() && h.equalsIgnoreCase(c.host)) {
                         return true;
                     }
@@ -512,121 +411,16 @@ public class MainActivity extends Activity {
         return false;
     }
 
-    private boolean handleUrlOverride(String url) {
-        if (url == null || url.isEmpty()) return false;
-        if (url.startsWith("https://retry.local") || url.startsWith("http://retry.local")) {
-            startServerPingAndConnect();
-            return true;
-        }
-        if (isInternalUrl(url)) {
-            return false;
-        }
-        // Only open external http/https web links in the system browser
-        if (url.startsWith("http://") || url.startsWith("https://")) {
-            try {
-                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                startActivity(intent);
-                return true;
-            } catch (Throwable ignored) {}
-        }
-        return false;
-    }
-
-    private void injectViewportAndLayoutFixes() {
-        if (webView == null) return;
-        final String js = 
-            "(function() {\n" +
-            "  try {\n" +
-            "    if (!document.getElementById('sp-responsive-fix')) {\n" +
-            "      var style = document.createElement('style');\n" +
-            "      style.id = 'sp-responsive-fix';\n" +
-            "      style.textContent = '\\n" +
-            "        html {\\n" +
-            "          font-size: clamp(16px, min(calc(100vw / 19.2), calc(100svh / 10.8), calc(100vh / 10.8)), 240px) !important;\\n" +
-            "          -webkit-text-size-adjust: 100% !important;\\n" +
-            "          text-size-adjust: 100% !important;\\n" +
-            "        }\\n" +
-            "        .result__main {\\n" +
-            "          padding-top: clamp(0.12rem, 2vh, 0.36rem) !important;\\n" +
-            "          padding-bottom: clamp(0.12rem, 2vh, 0.3rem) !important;\\n" +
-            "        }\\n" +
-            "        .result__hero {\\n" +
-            "          padding-top: clamp(0.08rem, 1.5vh, 0.3rem) !important;\\n" +
-            "          overflow-y: auto !important;\\n" +
-            "          overflow-x: hidden !important;\\n" +
-            "          scrollbar-width: thin !important;\\n" +
-            "        }\\n" +
-            "        .result__foot {\\n" +
-            "          margin-top: auto !important;\\n" +
-            "          padding-top: clamp(0.08rem, 1.2vh, 0.2rem) !important;\\n" +
-            "          padding-bottom: 0.06rem !important;\\n" +
-            "        }\\n" +
-            "      ';\n" +
-            "      (document.head || document.documentElement).appendChild(style);\n" +
-            "    }\n" +
-            "  } catch(e) {}\n" +
-            "})();";
-        webView.evaluateJavascript(js, null);
-    }
-
-    private void setupWebSettings() {
-        WebSettings ws = webView.getSettings();
-        ws.setJavaScriptEnabled(true);
-        ws.setDomStorageEnabled(true);
-        ws.setUseWideViewPort(true);
-        ws.setLoadWithOverviewMode(false);
-        ws.setTextZoom(100);
-        ws.setMinimumFontSize(1);
-        ws.setMinimumLogicalFontSize(1);
-        ws.setJavaScriptCanOpenWindowsAutomatically(true);
-        ws.setCacheMode(WebSettings.LOAD_DEFAULT);
-        // Clean default user agent: strip "; wv" and "Version/4.0 " so Cloudflare recognizes it as genuine mobile Chrome
-        try {
-            String defaultUa = ws.getUserAgentString();
-            if (defaultUa != null) {
-                ws.setUserAgentString(defaultUa.replace("; wv", "").replace("Version/4.0 ", ""));
-            }
-        } catch (Throwable ignored) {}
-
-        try {
-            ws.setDatabaseEnabled(true);
-        } catch (Throwable ignored) {}
-
-        try {
-            ws.setMediaPlaybackRequiresUserGesture(false);
-        } catch (Throwable ignored) {}
-
-        try {
-            ws.setAllowFileAccess(true);
-            ws.setAllowContentAccess(true);
-        } catch (Throwable ignored) {}
-
-        try {
-            ws.setSupportZoom(false);
-            ws.setBuiltInZoomControls(false);
-            ws.setDisplayZoomControls(false);
-        } catch (Throwable ignored) {}
-
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-            }
-        } catch (Throwable ignored) {}
-    }
-
-    private void handleWebViewInitError(final Throwable t) {
+    private void handleGeckoViewInitError(final Throwable t) {
         if (progressBar != null) progressBar.setVisibility(View.GONE);
 
         String msg = t.getMessage();
         if (msg == null || msg.isEmpty()) msg = t.getClass().getSimpleName();
 
         new AlertDialog.Builder(this)
-            .setTitle("系统 WebView 初始化失败")
-            .setMessage("手机未能成功启动内置 WebView 内核。\n\n"
+            .setTitle("浏览器内核启动失败")
+            .setMessage("手机未能成功启动内置浏览器内核。\n\n"
                 + "错误详情：" + msg + "\n\n"
-                + "常见原因：\n"
-                + "1. 手机的「Android System WebView」组件被停用或版本过旧\n"
-                + "2. 部分定制精简版系统缺少 WebView 核心支持\n\n"
                 + "你可以点击下方按钮直接在外部浏览器中正常游玩。")
             .setCancelable(false)
             .setPositiveButton("在浏览器中打开", new DialogInterface.OnClickListener() {
@@ -710,8 +504,8 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
+        if (canSessionGoBack && geckoSession != null) {
+            geckoSession.goBack();
             return;
         }
         if (System.currentTimeMillis() - backPressedTime < 2000) {
@@ -750,10 +544,10 @@ public class MainActivity extends Activity {
         super.onResume();
         KeepAliveService.stop(this);
         releaseWakeLock();
-        if (webView != null) {
+        if (geckoSession != null) {
             try {
-                webView.onResume();
-                webView.evaluateJavascript("if (window.dispatchEvent) { window.dispatchEvent(new Event('focus')); }", null);
+                geckoSession.setActive(true);
+                geckoSession.setFocused(true);
             } catch (Throwable ignored) {}
         }
         hideSystemUI();
@@ -768,7 +562,6 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
-        // DO NOT call webView.onPause()! Pausing WebView stops JavaScript timers and drops WebSocket immediately.
         acquireWakeLock();
     }
 
@@ -785,10 +578,15 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         KeepAliveService.stop(this);
         releaseWakeLock();
-        if (webView != null) {
+        if (geckoSession != null) {
             try {
-                rootContainer.removeView(webView);
-                webView.destroy();
+                geckoSession.close();
+            } catch (Throwable ignored) {}
+        }
+        if (geckoView != null) {
+            try {
+                rootContainer.removeView(geckoView);
+                geckoView.releaseSession();
             } catch (Throwable ignored) {}
         }
         super.onDestroy();

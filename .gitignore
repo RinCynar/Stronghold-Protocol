@@ -31,6 +31,7 @@ desktop.ini
 
 # --- Android build artifacts & private config ---
 android/build/
+android/libs/
 android/*.apk
 *.idsig
 android/src/main/res/values/servers.xml

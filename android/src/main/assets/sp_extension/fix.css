@@ -1,0 +1,8 @@
+html {
+  font-size: clamp(16px, min(calc(100vw / 19.2), calc(100svh / 10.8), calc(100vh / 10.8)), 240px) !important;
+  -webkit-text-size-adjust: 100% !important;
+  text-size-adjust: 100% !important;
+}
+.result__main {
+  padding-top: clamp(0.12rem, 2vh, 0.36rem) !important;
+}
