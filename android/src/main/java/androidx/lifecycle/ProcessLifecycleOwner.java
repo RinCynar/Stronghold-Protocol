@@ -17,8 +17,14 @@ public class ProcessLifecycleOwner implements LifecycleOwner {
     private static final String TAG = "ProcessLifecycleOwner";
     private static final ProcessLifecycleOwner sInstance = new ProcessLifecycleOwner();
 
-    public static ProcessLifecycleOwner get() {
+    public static final ProcessLifecycleOwner newInstance = sInstance;
+
+    public static LifecycleOwner get() {
         return sInstance;
+    }
+
+    public static void init(android.content.Context context) {
+        // No-op, built-in singleton ready immediately
     }
 
     private final SimpleLifecycle mLifecycle = new SimpleLifecycle(this);
