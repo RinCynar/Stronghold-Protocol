@@ -20,47 +20,65 @@ def main():
     d8 = os.path.join(build_tools, "d8.bat")
     zipalign = os.path.join(build_tools, "zipalign.exe")
     apksigner = os.path.join(build_tools, "apksigner.bat")
+    dexdump = os.path.join(build_tools, "dexdump.exe")
     jdk_bin = r"C:\Program Files\Eclipse Adoptium\jdk-17\bin"
     javac = os.path.join(jdk_bin, "javac.exe")
     keystore = os.path.join(script_dir, "release.keystore")
 
     libs_dir = os.path.join(script_dir, "libs")
-    aar_path = os.path.join(libs_dir, "geckoview-128.aar")
-    androidx_annotation = os.path.join(libs_dir, "annotation-1.6.0.jar")
-    androidx_collection = os.path.join(libs_dir, "collection-1.2.0.jar")
-    androidx_lifecycle = os.path.join(libs_dir, "lifecycle-common-2.6.2.jar")
-    # Auto-download missing libraries
     os.makedirs(libs_dir, exist_ok=True)
+
+    aar_path = os.path.join(libs_dir, "geckoview-128.aar")
+
+    # Complete list of required runtime dependencies to guarantee zero ClassNotFoundException / NoSuchMethodError
     required_downloads = [
         (aar_path, "https://maven.mozilla.org/maven2/org/mozilla/geckoview/geckoview-arm64-v8a/128.0.20240725162350/geckoview-arm64-v8a-128.0.20240725162350.aar", "GeckoView 128 AAR"),
-        (androidx_annotation, "https://dl.google.com/dl/android/maven2/androidx/annotation/annotation/1.6.0/annotation-1.6.0.jar", "androidx.annotation"),
-        (androidx_collection, "https://dl.google.com/dl/android/maven2/androidx/collection/collection/1.2.0/collection-1.2.0.jar", "androidx.collection"),
-        (androidx_lifecycle, "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-common/2.6.2/lifecycle-common-2.6.2.jar", "androidx.lifecycle")
+        (os.path.join(libs_dir, "core-1.13.1.aar"), "https://dl.google.com/dl/android/maven2/androidx/core/core/1.13.1/core-1.13.1.aar", "androidx.core AAR"),
+        (os.path.join(libs_dir, "geckoview-exoplayer2.aar"), "https://maven.mozilla.org/maven2/org/mozilla/geckoview/geckoview-exoplayer2/128.0.20240725162350/geckoview-exoplayer2-128.0.20240725162350.aar", "geckoview-exoplayer2 AAR"),
+        (os.path.join(libs_dir, "snakeyaml-2.2.jar"), "https://repo1.maven.org/maven2/org/yaml/snakeyaml/2.2/snakeyaml-2.2.jar", "snakeyaml JAR"),
+        (os.path.join(libs_dir, "annotation-jvm-1.8.0.jar"), "https://dl.google.com/dl/android/maven2/androidx/annotation/annotation-jvm/1.8.0/annotation-jvm-1.8.0.jar", "androidx.annotation-jvm JAR"),
+        (os.path.join(libs_dir, "collection-1.2.0.jar"), "https://dl.google.com/dl/android/maven2/androidx/collection/collection/1.2.0/collection-1.2.0.jar", "androidx.collection JAR"),
+        (os.path.join(libs_dir, "lifecycle-common-2.6.2.jar"), "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-common/2.6.2/lifecycle-common-2.6.2.jar", "androidx.lifecycle-common JAR"),
+        (os.path.join(libs_dir, "lifecycle-runtime-2.6.2.aar"), "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-runtime/2.6.2/lifecycle-runtime-2.6.2.aar", "androidx.lifecycle-runtime AAR"),
+        (os.path.join(libs_dir, "versionedparcelable-1.1.1.aar"), "https://dl.google.com/dl/android/maven2/androidx/versionedparcelable/versionedparcelable/1.1.1/versionedparcelable-1.1.1.aar", "androidx.versionedparcelable AAR"),
+        (os.path.join(libs_dir, "interpolator-1.0.0.aar"), "https://dl.google.com/dl/android/maven2/androidx/interpolator/interpolator/1.0.0/interpolator-1.0.0.aar", "androidx.interpolator AAR"),
+        (os.path.join(libs_dir, "concurrent-futures-1.0.0.jar"), "https://dl.google.com/dl/android/maven2/androidx/concurrent/concurrent-futures/1.0.0/concurrent-futures-1.0.0.jar", "androidx.concurrent-futures JAR"),
+        (os.path.join(libs_dir, "kotlin-stdlib-1.8.22.jar"), "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/1.8.22/kotlin-stdlib-1.8.22.jar", "kotlin-stdlib JAR"),
+        (os.path.join(libs_dir, "play-services-fido-21.1.0.aar"), "https://dl.google.com/dl/android/maven2/com/google/android/gms/play-services-fido/21.1.0/play-services-fido-21.1.0.aar", "play-services-fido AAR"),
+        (os.path.join(libs_dir, "play-services-tasks-18.1.0.aar"), "https://dl.google.com/dl/android/maven2/com/google/android/gms/play-services-tasks/18.1.0/play-services-tasks-18.1.0.aar", "play-services-tasks AAR"),
+        (os.path.join(libs_dir, "play-services-base-18.5.0.aar"), "https://dl.google.com/dl/android/maven2/com/google/android/gms/play-services-base/18.5.0/play-services-base-18.5.0.aar", "play-services-base AAR"),
+        (os.path.join(libs_dir, "play-services-basement-18.4.0.aar"), "https://dl.google.com/dl/android/maven2/com/google/android/gms/play-services-basement/18.4.0/play-services-basement-18.4.0.aar", "play-services-basement AAR"),
+        (os.path.join(libs_dir, "core-runtime-2.2.0.aar"), "https://dl.google.com/dl/android/maven2/androidx/arch/core/core-runtime/2.2.0/core-runtime-2.2.0.aar", "arch core-runtime AAR"),
+        (os.path.join(libs_dir, "core-common-2.2.0.jar"), "https://dl.google.com/dl/android/maven2/androidx/arch/core/core-common/2.2.0/core-common-2.2.0.jar", "arch core-common JAR"),
+        (os.path.join(libs_dir, "listenablefuture-1.0.jar"), "https://repo1.maven.org/maven2/com/google/guava/listenablefuture/1.0/listenablefuture-1.0.jar", "listenablefuture JAR"),
     ]
+
+    import urllib.request
     for path, url, label in required_downloads:
         if not os.path.exists(path):
             print(f"    Downloading {label}...")
-            import urllib.request
             tmp_dl = path + ".tmp"
             urllib.request.urlretrieve(url, tmp_dl)
-            if url.endswith(".aar"):
-                with zipfile.ZipFile(tmp_dl) as z:
-                    with open(path, "wb") as f_out:
+            os.rename(tmp_dl, path)
+
+        # For AAR dependencies (other than geckoview which has separate handling), extract classes.jar
+        if path.endswith(".aar") and path != aar_path:
+            jar_path = path[:-4] + ".jar"
+            if not os.path.exists(jar_path):
+                with zipfile.ZipFile(path, "r") as z:
+                    with open(jar_path, "wb") as f_out:
                         f_out.write(z.read("classes.jar"))
-                os.remove(tmp_dl)
-            else:
-                os.rename(tmp_dl, path)
 
     build_dir = os.path.join(script_dir, "build")
     gen_dir = os.path.join(build_dir, "gen")
     classes_dir = os.path.join(build_dir, "classes")
     dex_dir = os.path.join(build_dir, "dex")
     aar_extracted_dir = os.path.join(build_dir, "aar_extracted")
+    core_res_dir = os.path.join(build_dir, "core_res")
     public_dir = os.path.join(project_root, "public")
 
     print("==> 1. Preparing build directories and extracting GeckoView engine...")
     if os.path.exists(build_dir):
-        # Keep aar_extracted if it exists to speed up rebuilds
         for item in os.listdir(build_dir):
             if item != "aar_extracted":
                 p = os.path.join(build_dir, item)
@@ -68,7 +86,7 @@ def main():
                     shutil.rmtree(p)
                 else:
                     os.remove(p)
-    for d in [gen_dir, classes_dir, dex_dir, aar_extracted_dir]:
+    for d in [gen_dir, classes_dir, dex_dir, aar_extracted_dir, core_res_dir]:
         os.makedirs(d, exist_ok=True)
 
     gecko_classes_jar = os.path.join(aar_extracted_dir, "classes.jar")
@@ -77,20 +95,36 @@ def main():
         with zipfile.ZipFile(aar_path, "r") as z:
             z.extractall(aar_extracted_dir)
 
-    print("==> 2. Compiling base resources with aapt2...")
-    compiled_res = os.path.join(build_dir, "compiled_res.zip")
-    res_dir = os.path.join(script_dir, "src", "main", "res")
-    manifest = os.path.join(script_dir, "src", "main", "AndroidManifest.xml")
-    
-    subprocess.check_call([aapt2, "compile", "--dir", res_dir, "-o", compiled_res])
+    # Extract resources from core-1.13.1.aar
+    core_aar = os.path.join(libs_dir, "core-1.13.1.aar")
+    with zipfile.ZipFile(core_aar, "r") as z:
+        for n in z.namelist():
+            if n.startswith("res/"):
+                z.extract(n, core_res_dir)
 
-    print("==> 3. Linking base_rc.apk and generating R.java...")
+    print("==> 2. Compiling resources with aapt2...")
+    compiled_app_res = os.path.join(build_dir, "compiled_app.zip")
+    compiled_gecko_res = os.path.join(build_dir, "compiled_gecko.zip")
+    compiled_core_res = os.path.join(build_dir, "compiled_core.zip")
+
+    app_res_dir = os.path.join(script_dir, "src", "main", "res")
+    gecko_res_dir = os.path.join(aar_extracted_dir, "res")
+    core_res_actual = os.path.join(core_res_dir, "res")
+    manifest = os.path.join(script_dir, "src", "main", "AndroidManifest.xml")
+
+    subprocess.check_call([aapt2, "compile", "--dir", app_res_dir, "-o", compiled_app_res])
+    subprocess.check_call([aapt2, "compile", "--dir", gecko_res_dir, "-o", compiled_gecko_res])
+    subprocess.check_call([aapt2, "compile", "--dir", core_res_actual, "-o", compiled_core_res])
+
+    print("==> 3. Linking base_rc.apk and generating R.java for app, geckoview, and core...")
     base_rc_apk = os.path.join(build_dir, "base_rc.apk")
     subprocess.check_call([
-        aapt2, "link", compiled_res,
+        aapt2, "link",
+        compiled_app_res, compiled_gecko_res, compiled_core_res,
         "-I", platform_jar,
         "--manifest", manifest,
         "--java", gen_dir,
+        "--extra-packages", "org.mozilla.geckoview:androidx.core",
         "-o", base_rc_apk,
         "--auto-add-overlay"
     ])
@@ -106,13 +140,13 @@ def main():
             if f.endswith(".java"):
                 java_files.append(os.path.join(root, f))
 
-    javac_cp = os.pathsep.join([
-        platform_jar,
-        gecko_classes_jar,
-        androidx_annotation,
-        androidx_collection,
-        androidx_lifecycle
-    ])
+    # Collect all library jars
+    lib_jars = []
+    for f in sorted(os.listdir(libs_dir)):
+        if f.endswith(".jar"):
+            lib_jars.append(os.path.join(libs_dir, f))
+
+    javac_cp = os.pathsep.join([platform_jar, gecko_classes_jar] + lib_jars)
 
     subprocess.check_call([
         javac, "-encoding", "UTF-8",
@@ -122,24 +156,41 @@ def main():
     ] + java_files)
 
     print("==> 5. Converting bytecode to DEX with d8...")
-    class_files = []
-    for root, _, files in os.walk(classes_dir):
-        for f in files:
-            if f.endswith(".class"):
-                class_files.append(os.path.join(root, f))
+    # Package compiled app classes into a single jar to avoid command line length limits on Windows
+    app_classes_jar = os.path.join(build_dir, "app_classes.jar")
+    with zipfile.ZipFile(app_classes_jar, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        for root, _, files in os.walk(classes_dir):
+            for f in files:
+                if f.endswith(".class"):
+                    full_p = os.path.join(root, f)
+                    rel_p = os.path.relpath(full_p, classes_dir).replace("\\", "/")
+                    z.write(full_p, rel_p)
 
-    d8_inputs = class_files + [
-        gecko_classes_jar,
-        androidx_annotation,
-        androidx_collection,
-        androidx_lifecycle
-    ]
+    d8_inputs = [app_classes_jar, gecko_classes_jar] + lib_jars
 
     subprocess.check_call([
         d8, "--release", "--min-api", "21",
         "--lib", platform_jar,
         "--output", dex_dir
     ] + d8_inputs)
+
+    # Verify that classes.dex contains ViewCompat and zero missing GeckoView references
+    print("    Verifying DEX bytecode integrity...")
+    dex_classes = set()
+    dex_out = subprocess.check_output([dexdump, "-f", os.path.join(dex_dir, "classes.dex")], encoding="utf-8", errors="ignore")
+    for line in dex_out.splitlines():
+        line = line.strip()
+        if line.startswith("Class descriptor"):
+            parts = line.split("'")
+            if len(parts) >= 2:
+                desc = parts[1].strip()
+                if desc.startswith("L") and desc.endswith(";"):
+                    dex_classes.add(desc[1:-1])
+
+    assert "androidx/core/view/ViewCompat" in dex_classes, "CRITICAL ERROR: ViewCompat missing from DEX!"
+    assert "androidx/core/content/res/ResourcesCompat" in dex_classes, "CRITICAL ERROR: ResourcesCompat missing from DEX!"
+    assert "androidx/lifecycle/ProcessLifecycleOwner" in dex_classes, "CRITICAL ERROR: ProcessLifecycleOwner missing from DEX!"
+    print(f"    DEX integrity verified: {len(dex_classes)} classes packaged, critical classes confirmed present.")
 
     print("==> 6. Packaging and signing Stronghold-Protocol.apk (GeckoView + ECH)...")
     raw_apk = os.path.join(build_dir, "raw.apk")
