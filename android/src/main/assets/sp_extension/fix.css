@@ -32,3 +32,21 @@ button.fsbtn,
   top: -9999px !important;
   left: -9999px !important;
 }
+
+/* 延迟显示优化：当延迟 >1500ms（标记为 9999）时，将数值替换为醒目的 timeout 并隐藏 ms 单位 */
+.ping[title*="9999"] .ping__value,
+.ping[title*="timeout"] .ping__value {
+  font-size: 0 !important;
+}
+.ping[title*="9999"] .ping__value::before,
+.ping[title*="timeout"] .ping__value::before {
+  content: "timeout" !important;
+  font-size: 0.14rem !important;
+  color: var(--red-premium, #ff4d4f) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em !important;
+}
+.ping[title*="9999"] .ping__unit,
+.ping[title*="timeout"] .ping__unit {
+  display: none !important;
+}

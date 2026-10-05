@@ -2,8 +2,9 @@
 // 1. Disables DOM Fullscreen API in native Android app to prevent viewport desync.
 // 2. Proactively detects Cloudflare Error 1027 (Rate Limit), 502/503/52x, and triggers auto-failover.
 (function() {
-  // 1. Disable DOM Fullscreen API (v1.0.9)
-  function disableFullscreen() {
+  // Main page execution hook
+  function injectIntoPage() {
+    // 1. Disable DOM Fullscreen API (v1.0.9)
     try {
       if (typeof document !== 'undefined') {
         Object.defineProperty(document, 'fullscreenEnabled', {
@@ -28,16 +29,97 @@
         }
       }
     } catch (e) {}
+
+    // 2. UI Latency Optimization (v1.0.11): ceil(ping / 10), timeout if > 1500ms
+    try {
+      function transformPing(raw) {
+        if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return raw;
+        if (raw > 1500) return 9999;
+        return Math.ceil(raw / 10);
+      }
+
+      function hookStore(store) {
+        if (!store || store.__sp_ping_hooked) return;
+        store.__sp_ping_hooked = true;
+
+        const origSet = store.set;
+        store.set = function(patch) {
+          let p = patch;
+          if (typeof patch === 'function') {
+            p = patch(store.get());
+          }
+          if (p && typeof p === 'object' && p.connection) {
+            const conn = { ...p.connection };
+            if (typeof conn.ping === 'number' && Number.isFinite(conn.ping)) {
+              conn.ping = transformPing(conn.ping);
+            }
+            p = { ...p, connection: conn };
+          }
+          return origSet.call(this, p);
+        };
+
+        const origPatch = store.patch;
+        if (typeof origPatch === 'function') {
+          store.patch = function(key, value) {
+            if (key === 'connection') {
+              let v = typeof value === 'function' ? value(store.get().connection) : value;
+              if (v && typeof v === 'object' && typeof v.ping === 'number' && Number.isFinite(v.ping)) {
+                v = { ...v, ping: transformPing(v.ping) };
+              }
+              return origPatch.call(this, key, v);
+            }
+            return origPatch.apply(this, arguments);
+          };
+        }
+      }
+
+      let _sp = window.__SP__;
+      if (_sp && _sp.store) {
+        hookStore(_sp.store);
+      }
+      Object.defineProperty(window, '__SP__', {
+        get: function() { return _sp; },
+        set: function(val) {
+          _sp = val;
+          if (val && val.store) {
+            hookStore(val.store);
+          }
+        },
+        configurable: true,
+        enumerable: true
+      });
+    } catch (e) {}
   }
 
-  disableFullscreen();
+  // Run in content script context
+  try {
+    if (typeof Element !== 'undefined' && Element.prototype && Element.prototype.requestFullscreen) {
+      Element.prototype.requestFullscreen = function() {
+        return Promise.reject(new Error("DOM fullscreen disabled in native Android app"));
+      };
+    }
+  } catch (e) {}
 
+  // Inject into page main context
   try {
     const script = document.createElement('script');
-    script.textContent = '(' + disableFullscreen.toString() + ')();';
+    script.textContent = '(' + injectIntoPage.toString() + ')();';
     (document.head || document.documentElement).appendChild(script);
     script.remove();
   } catch (e) {}
+
+  // Periodic DOM title sanitizer for timeout display
+  setInterval(function() {
+    try {
+      const pills = document.querySelectorAll('.ping');
+      for (let i = 0; i < pills.length; i++) {
+        const p = pills[i];
+        if (p.title && p.title.includes('9999ms')) {
+          p.title = '连接超时 (>1500ms)';
+        }
+      }
+    } catch (e) {}
+  }, 400);
 
   // 2. Automated Node Health & Cloudflare Error Detection (v1.0.10)
   let hasTriggeredFailover = false;
