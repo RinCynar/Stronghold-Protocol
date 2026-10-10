@@ -1052,3 +1052,12 @@
   --bk-c: var(--red-premium);
 }
 .crash__box h2 { font-size: calc(.3 * var(--t)); }
+
+/* RinCynar extension: online counter & matchmaking panel */
+.online-counter { color: var(--mint-400); }
+.online-counter__text { font-size: calc(.14 * var(--t)); font-weight: 600; white-space: nowrap; }
+.mm-modal__body { display: flex; flex-direction: column; gap: .14rem; padding: .1rem 0; font-size: calc(.16 * var(--t)); }
+.mm-modal__row { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--line); padding-bottom: .08rem; }
+.mm-modal__label { color: var(--text-lo); }
+.mm-modal__val { font-family: var(--font-num); font-weight: 700; color: var(--mint-400); font-size: calc(.2 * var(--t)); }
+.mm-modal__hint { font-size: calc(.13 * var(--t)); color: var(--text-dim); line-height: 1.5; margin-top: .04rem; }

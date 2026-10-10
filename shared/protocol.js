@@ -411,6 +411,11 @@ export const C2S = {
   // room.closed { reason: 'kicked' }). room.leave / g.leave leave a spectator seat like a player seat.
   'room.spectate': { code: (v) => isStr(v, ROOM_CODE_LEN + 2) && /^[A-Za-z0-9]+$/.test(v) },
   'room.removeSpectator': { playerId: isId },
+  // RinCynar extension (host transfer): host transfers ownership to another player
+  'room.transferHost': { playerId: isId },
+  // RinCynar extension (matchmaking): queue messages
+  'queue.join': {},
+  'queue.leave': {},
 
   // match
   'g.infoReady': { setupRevision: (v) => isInt(v, 0, 2 ** 31), $optional: ['setupRevision'] },
@@ -480,6 +485,8 @@ export const S2C = [
   'b.start', 'b.pool', 'b.end',
   // server-run combat streaming (legacy / SP_COMBAT=server only)
   'b.snap', 'b.ev',
+  // RinCynar extension (matchmaking): matched room code or queue status update
+  'queue.matched', 'queue.update',
 ];
 
 /**

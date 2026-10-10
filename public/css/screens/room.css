@@ -313,3 +313,7 @@
 .ready-count__icons .icon.is-on { color: var(--mint-400); filter: drop-shadow(0 0 4px var(--mint-glow)); }
 
 .room-bar .btn--xl { min-width: 3.2rem; letter-spacing: .2em; }
+
+/* RinCynar extension: host actions (transfer & kick) in seat foot */
+.seat__actions { position: absolute; right: .14rem; bottom: .14rem; display: flex; align-items: center; gap: .06rem; }
+.seat__actions .tt-anchor { position: static; }

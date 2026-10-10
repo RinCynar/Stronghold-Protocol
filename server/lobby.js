@@ -105,6 +105,7 @@ import { encode, isDroppable, isErrCode, sendRaw, sendSession } from './net.js';
 import { getData as defaultGetData, lookup } from './data.js';
 import { Match as DefaultMatch } from './match/Match.js';
 import { KITTED_CHARS } from './sim/content/kits/index.js';
+import { Queue } from './queue.js';
 
 /** Room code alphabet: uppercase letters without I and O (and no digits, so no 0/1). */
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -267,6 +268,8 @@ export class Lobby {
     this.resyncTimers = new Map();
     /** per-network limit warnings: at most one log line per 10 s (the rest are counted) */
     this.limitLog = { at: -Infinity, suppressed: 0 };
+    // RinCynar extension (matchmaking): Matchmaking queue instance
+    this.queue = new Queue({ lobby: this, log: this.log, now: this.now });
   }
 
   /** @param {string} code @returns {Room | null} */
@@ -350,6 +353,10 @@ export class Lobby {
       case 'room.diy': return this.diy(session, msg);
       case 'room.spectate': return this.spectate(session, msg);
       case 'room.removeSpectator': return this.removeSpectator(session, msg);
+      // RinCynar extension: host transfer & matchmaking
+      case 'room.transferHost': return this.transferHost(session, msg);
+      case 'queue.join': return this.queue ? this.queue.join(session) : fail(ERR.INTERNAL);
+      case 'queue.leave': return this.queue ? this.queue.leave(session) : fail(ERR.INTERNAL);
       default:
         if (typeof msg.t === 'string' && msg.t.startsWith('g.')) return this.routeGame(session, msg);
         return fail(ERR.BAD_MSG, `unhandled type ${String(msg.t).slice(0, 32)}`);
@@ -358,6 +365,7 @@ export class Lobby {
 
   /** The session's socket closed. @param {import('./net.js').Session} session */
   onDisconnect(session) {
+    this.queue?.leave(session);
     this.clearResync(session.playerId); // the next resume resyncs immediately
     const room = this.roomOf(session);
     // a solo run may be resumed within singleReconnectTime (24 h); everything else keeps the registry's window
@@ -373,6 +381,7 @@ export class Lobby {
 
   /** The session's reconnect window elapsed (already removed from the registry). */
   onExpire(session) {
+    this.queue?.leave(session);
     session.notice = null;
     session.pendingResult = null;
     this.clearResync(session.playerId);
@@ -392,6 +401,7 @@ export class Lobby {
     this.graceTimers.clear();
     for (const t of this.resyncTimers.values()) clearTimeout(t);
     this.resyncTimers.clear();
+    this.queue?.dispose();
   }
 
   // ---------------------------------------------------------------------------------------------------
@@ -399,6 +409,7 @@ export class Lobby {
   // ---------------------------------------------------------------------------------------------------
 
   create(session, { mode, difficulty }) {
+    this.queue?.leave(session);
     const cur = this.roomOf(session);
     if (cur && cur.match) return fail(ERR.ROOM_STARTED, 'leave your running match first');
     if (this.rooms.size >= this.opts.maxRooms) return fail(ERR.INTERNAL, 'too many rooms');
@@ -428,6 +439,7 @@ export class Lobby {
   }
 
   join(session, { code }) {
+    this.queue?.leave(session);
     const norm = String(code).trim().toUpperCase();
     const room = norm.length === ROOM_CODE_LEN ? this.rooms.get(norm) : undefined;
     if (!room) return fail(ERR.ROOM_NOT_FOUND);
@@ -461,6 +473,7 @@ export class Lobby {
    * running match the match registers the spectator and resends what it may see (Match.addSpectator).
    */
   spectate(session, { code }) {
+    this.queue?.leave(session);
     const norm = String(code).trim().toUpperCase();
     const room = norm.length === ROOM_CODE_LEN ? this.rooms.get(norm) : undefined;
     if (!room) return fail(ERR.ROOM_NOT_FOUND);
@@ -1152,4 +1165,63 @@ export class Lobby {
     if (!session || session.roomCode !== room.code) return false;
     return sendSession(session, msg);
   }
+
+  // ---------------------------------------------------------------------------------------------------
+  // RinCynar extension (host transfer & matchmaking)
+  // ---------------------------------------------------------------------------------------------------
+
+  /** Host actively transfers room ownership before the match. */
+  transferHost(session, { playerId }) {
+    const room = this.roomOf(session);
+    if (!room) return fail(ERR.NOT_IN_ROOM);
+    if (room.hostId !== session.playerId) return fail(ERR.NOT_HOST);
+    if (room.match) return fail(ERR.ROOM_STARTED);
+    const target = room.seatOf(playerId);
+    if (!target || target.left) return fail(ERR.BAD_TARGET, 'seat holds no player');
+    if (target.isBot) return fail(ERR.BAD_TARGET, 'cannot transfer to AI');
+    if (target.playerId === session.playerId) return fail(ERR.BAD_TARGET, 'cannot transfer to yourself');
+    if (!target.connected) return fail(ERR.BAD_TARGET, 'player is disconnected');
+    room.hostId = target.playerId;
+    this.broadcastState(room);
+    this.log.info(`[lobby] ${room.code} host transferred to ${target.name}`);
+    return OK;
+  }
+
+  /** Create a co-op room populated with matched players and AI fillers. */
+  createQueuedRoom(sessions, difficulty = 'ABYSS') {
+    if (this.rooms.size >= this.opts.maxRooms) return null;
+    const code = this.genCode();
+    if (!code) return null;
+
+    const room = new Room(code, 'coop', difficulty, this.now());
+    this.rooms.set(code, room);
+
+    for (let i = 0; i < sessions.length && i < MAX_SEATS; i++) {
+      const s = sessions[i];
+      const cur = this.roomOf(s);
+      if (cur) this.removeMember(cur, s.playerId);
+      room.seats[i] = this.humanSeat(i, s);
+      s.roomCode = code;
+      s.notice = null;
+      s.pendingResult = null;
+    }
+
+    if (sessions.length > 0) {
+      room.hostId = sessions[0].playerId;
+    }
+
+    // Fill remaining seats with bots
+    for (let i = sessions.length; i < MAX_SEATS; i++) {
+      const used = new Set(room.seats.filter((s) => s && s.isBot).map((s) => s.name));
+      const name = BOT_NAMES.find((n) => !used.has(n)) || `AI·${i + 1}`;
+      let playerId;
+      do playerId = 'ai_' + randomBytes(4).toString('hex'); while (room.seatOf(playerId));
+      room.seats[i] = { seat: i, playerId, name, isBot: true, ready: true, connected: true, left: false };
+    }
+
+    this.log.info(`[lobby] ${code} created via queue (${difficulty}) with ${sessions.length} human(s)`);
+    this.broadcastState(room);
+    return room;
+  }
 }
+

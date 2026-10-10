@@ -1211,5 +1211,22 @@
   "请等待所有玩家连接后再发起投票": "Wait for all players to connect before starting a vote.",
   "同意重刷": "Agree to reroll",
   "拒绝重刷": "Reject reroll",
-  "取消投票": "Cancel vote"
+  "取消投票": "Cancel vote",
+  "转让房主": "Transfer host",
+  "转让房主给该博士": "Transfer host to this Doctor",
+  "确定将创建者身份转让给「{name}」吗？": "Transfer host privileges to \"{name}\"?",
+  "转让": "Transfer",
+  "匹配成功！正在进入同盟…": "Match found! Entering alliance…",
+  "随机匹配": "Quick match",
+  "寻找同盟中…": "Finding alliance…",
+  "取消匹配": "Cancel matchmaking",
+  "当前队列位置": "Queue position",
+  "第 {pos} 位": "#{pos}",
+  "当前排队人数": "Players in queue",
+  "{count} 人": "{count} {count|one|other:player|players}",
+  "已等待时间": "Wait time",
+  "{sec} 秒": "{sec}s",
+  "满 4 人将自动开局；超时 90 秒将由 AI 补位开局。": "Starts automatically with 4 players, or fills with AI bots after 90 seconds.",
+  "当前节点在线人数": "Online players on current node",
+  "在线 {n} 人": "{n} online"
 }
