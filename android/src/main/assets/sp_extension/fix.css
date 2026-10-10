@@ -1,0 +1,52 @@
+html {
+  font-size: clamp(16px, min(calc(100vw / 19.2), calc(100svh / 10.8), calc(100vh / 10.8)), 240px) !important;
+  -webkit-text-size-adjust: 100% !important;
+  text-size-adjust: 100% !important;
+}
+.result__main {
+  padding-top: clamp(0.12rem, 2vh, 0.36rem) !important;
+}
+
+/* 屏蔽网页全屏按钮，避免在 Android 原生沉浸横屏全屏客户端中误触导致 DOM 全屏布局异常 */
+.fsbtn,
+.title-fs,
+.gm__fs,
+button.fsbtn,
+.sp-standalone .fsbtn,
+[aria-label="全屏"],
+[aria-label="退出全屏"],
+[title="全屏"],
+[title="退出全屏"] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  position: absolute !important;
+  top: -9999px !important;
+  left: -9999px !important;
+}
+
+/* 延迟显示优化：当延迟 >1500ms（标记为 9999）时，将数值替换为醒目的 timeout 并隐藏 ms 单位 */
+.ping[title*="9999"] .ping__value,
+.ping[title*="timeout"] .ping__value {
+  font-size: 0 !important;
+}
+.ping[title*="9999"] .ping__value::before,
+.ping[title*="timeout"] .ping__value::before {
+  content: "timeout" !important;
+  font-size: 0.14rem !important;
+  color: var(--red-premium, #ff4d4f) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em !important;
+}
+.ping[title*="9999"] .ping__unit,
+.ping[title*="timeout"] .ping__unit {
+  display: none !important;
+}

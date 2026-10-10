@@ -43,3 +43,14 @@ desktop.ini
 .idea/
 .vscode/
 .claude/
+
+# --- Android build artifacts & private config ---
+android/build/
+android/libs/
+android/*.apk
+/*.apk
+*.idsig
+*.keystore
+android/keystore.properties
+android/src/main/res/values/servers.xml
+**/servers.xml

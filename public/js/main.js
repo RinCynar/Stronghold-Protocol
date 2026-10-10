@@ -340,10 +340,24 @@ function installGlobalErrorHandlers() {
   });
 }
 
+/** Boot splash progress line (#boot-status, index.html): what the page is waiting for. */
+function bootStatus(text) {
+  const el = document.getElementById('boot-status');
+  if (el) el.textContent = text || '';
+}
+
 async function boot() {
   installGlobalErrorHandlers();
   // touch / hover / fullscreen classes, zoom-gesture blocking, rotation re-layout (ui/device.js, css/devices.css)
   installDeviceSupport();
+  // Splash progress while fonts / identity / the first socket connect (ui/connBanner.js takes over once the app renders).
+  bootStatus(t('正在启动…'));
+  const offBootStatus = net.on('status', (snap) => {
+    if (snap.status === 'handshaking') bootStatus(t('正在同步会话…'));
+    else if (snap.status === 'connecting') bootStatus(t('正在连接服务器…'));
+    else if (snap.status === 'reconnecting') bootStatus(t('正在连接服务器…（重试第 {attempt} 次）', { attempt: snap.attempt }));
+    else if (snap.status === 'connected') bootStatus(t('已连接，等待进入…'));
+  });
   // A page restored from the back/forward cache has a dead socket and a stale token choice: start over.
   window.addEventListener('pageshow', (ev) => { if (ev.persisted) location.reload(); });
   // Pick this tab's reconnect token (asks other live tabs; ≤150 ms) while fonts load.
@@ -357,6 +371,20 @@ async function boot() {
     session: { entered },
     ui: { ...s.ui, pendingJoin },
   }));
+
+  // Opt-in multi-node failover (net.js setFallbackUrls): a launch portal (cloudflare/worker.js) injects sibling WS
+  // endpoints as `#spfb=<wss urls, comma separated>`; net.js only uses them after the page origin has failed twice in
+  // a row. No fragment ⇒ exactly the vanilla single-origin behaviour. The list is kept in sessionStorage so a page
+  // reload mid-outage keeps it (the fragment itself is stripped from the URL).
+  try {
+    const injected = /spfb=([^&]+)/.exec(location.hash || '');
+    const raw = injected ? decodeURIComponent(injected[1]) : sessionStorage.getItem('sp.fb');
+    if (raw) net.setFallbackUrls(raw);
+    if (injected) {
+      sessionStorage.setItem('sp.fb', raw);
+      history.replaceState(history.state, '', location.pathname + location.search);
+    }
+  } catch { /* storage may be unavailable (privacy mode): failover stays off */ }
 
   wireNet();
   installStatsRecorder(store); // follows the match on screen, so a 放弃模拟 can be recorded (ui/stats.js)
@@ -387,6 +415,7 @@ async function boot() {
     splash.classList.add('is-done');
     setTimeout(() => splash.remove(), 300);
   }
+  offBootStatus();
   globalThis.__SP__ = { store, net, data, version: 1 };
   // A page keeps the modules it imported at load time for its whole lifetime, so a deploy cannot reach an open tab
   // (ui/buildGuard.js): watch `/healthz.build`. Outside a match the page reloads itself; during a match the guard says

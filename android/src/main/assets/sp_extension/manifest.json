@@ -1,0 +1,13 @@
+{
+  "manifest_version": 2,
+  "name": "StrongholdLayoutFix",
+  "version": "1.1",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "css": ["fix.css"],
+      "js": ["fix.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

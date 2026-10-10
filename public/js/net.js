@@ -38,6 +38,8 @@ export const HELLO_TIMEOUT_MS = 8000;
 export const PING_INTERVAL_MS = 4000;
 export const DEAD_AFTER_MS = 15000;
 export const BACKOFF = Object.freeze({ base: 500, factor: 2, max: 10000, jitter: 0.2 });
+/** Consecutive failed attempts to the primary endpoint before the injected fallbacks are tried (opt-in failover, setFallbackUrls). */
+export const FALLBACK_AFTER_ATTEMPTS = 2;
 
 /** Client-side error codes (in addition to shared ERR codes). */
 export const CLIENT_ERR_TEXT = Object.freeze({
@@ -106,6 +108,18 @@ const WS_OPEN = 1;
 const WS_CONNECTING = 0;
 
 /**
+ * Register fallback WS endpoints for opt-in multi-node failover (injected by a launch portal via
+ * the `#spfb=` fragment, see main.js): after the page origin has failed FALLBACK_AFTER_ATTEMPTS
+ * times in a row, later attempts cycle through the origin and these. Deployments without injected
+ * fallbacks keep the exact pre-failover behaviour. Entries that are not `ws(s)://` URLs are dropped.
+ * @param {string[]} urls `ws(s)://host/ws` endpoints, tried in order
+ */
+export function parseFallbackUrls(raw) {
+  const list = Array.isArray(raw) ? raw : String(raw ?? '').split(',');
+  return [...new Set(list.map((u) => String(u ?? '').trim()).filter((u) => /^wss?:\/\//i.test(u) && u.length <= 200))].slice(0, 12);
+}
+
+/**
  * Game server connection. Construct with injectable dependencies for tests.
  */
 export class Net {
@@ -163,6 +177,9 @@ export class Net {
     this._lastRx = 0;
     this._unansweredSince = null; // time of the oldest ping sent since the last inbound frame
     this._clockSamples = [];   // [{ offset, rtt }]
+    this.fallbacks = [];       // opt-in failover endpoints (setFallbackUrls); empty on vanilla deployments
+    this.homeUrl = null;       // endpoint that last produced a `welcome` (preferred again on reconnect)
+    this._wsUrl = null;        // URL the current / last socket was opened against
   }
 
   // ---- events ----------------------------------------------------------------------------------
@@ -211,6 +228,26 @@ export class Net {
 
   // ---- lifecycle -------------------------------------------------------------------------------
 
+  /** Set the failover endpoints (opt-in; see parseFallbackUrls). No-op on anything not ws(s)://. */
+  setFallbackUrls(raw) {
+    this.fallbacks = parseFallbackUrls(raw);
+  }
+
+  /**
+   * WS endpoint for the next attempt: the endpoint that last welcomed us (else the page origin)
+   * first; once the origin has failed FALLBACK_AFTER_ATTEMPTS times in a row, the cycle includes
+   * the injected fallbacks, so a dead front door does not strand the session (the origin is
+   * re-checked once per cycle in case it came back).
+   * @returns {string}
+   */
+  _urlForAttempt() {
+    const origin = defaultWsUrl();
+    if (!this.fallbacks.length) return origin;
+    const pool = [...new Set([this.homeUrl || origin, origin, ...this.fallbacks])];
+    if (this.attempt < FALLBACK_AFTER_ATTEMPTS) return pool[0];
+    return pool[(this.attempt - FALLBACK_AFTER_ATTEMPTS + 1) % pool.length];
+  }
+
   /** Open the socket (no-op when already open/connecting). Also resumes after close()/replacement. */
   connect() {
     const quiet = this._quietSwap;
@@ -220,7 +257,8 @@ export class Net {
     this._clearTimer('_reconnectTimer', 'clearTimeout');
     this.retryAt = 0;
     const WS = this.WS || globalThis.WebSocket;
-    const url = this.url || defaultWsUrl();
+    const url = this.url || this._urlForAttempt();
+    this._wsUrl = url;
     let ws;
     try {
       ws = new WS(url);
@@ -402,6 +440,7 @@ export class Net {
     this.playerId = msg.playerId ?? null;
     this.attempt = 0;
     this.lastError = null;
+    this.homeUrl = this._wsUrl; // this endpoint works: prefer it again after a future disconnect
     if (Number.isFinite(msg.serverNow)) this._addClockSample(msg.serverNow + (this.ping ?? 0) / 2 - this.now(), Infinity);
     this._setStatus('online');
     this._flushQueue();

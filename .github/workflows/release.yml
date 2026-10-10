@@ -1,0 +1,31 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create or Update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --title "Stronghold Protocol $TAG" \
+            --notes "### 卫戍协议：盟约 (Stronghold Protocol) $TAG 发布
+
+- 🎮 **在线游玩**：[https://ak.rincynar.top](https://ak.rincynar.top)
+- 📝 变更详见提交历史与 CHANGELOG.md" \
+            || gh release edit "$TAG" --title "Stronghold Protocol $TAG"
